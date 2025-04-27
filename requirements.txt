@@ -12,3 +12,4 @@ rest_framework_simplejwt==0.0.2
 scikit_learn==1.3.0
 Shapely==2.1.0
 gunicorn
+psycopg2-binary
