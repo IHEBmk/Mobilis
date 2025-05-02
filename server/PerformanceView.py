@@ -107,8 +107,9 @@ class getVisitPerformance(APIView):
         finish_rate=0
         if total_visits!=0:    
             for visit in visits:
-                mean_time+=visit['duration']
+                
                 if visit['status']=='finished':
+                    mean_time+=visit['duration']
                     finish_rate+=1
             mean_time=mean_time/total_visits
         for visit in visits:
