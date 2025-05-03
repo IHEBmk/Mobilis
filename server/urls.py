@@ -26,10 +26,13 @@ from server.VisitView import ClancelVisit, GetVisitsPlan, MakePlanning, Validate
 from server.WilayaView import GetGeojson, GetWilayas, Wilaya_to_supabase
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from server.dashboardViews import AgentCoordinatesAPIView, AverageVisitDuration, CommerciauxActifs, DashboardStats, LastWeekVisits, VisitedPDVPercentage, VisitsRealizedVsGoal, ZoneStatsAPIView, pdvVisited
+
 
 
 
 urlpatterns = [
+    
     path('signup/', SignupView.as_view(), name='signup'),
     path('login/', LoginView.as_view(), name='login'),
     path('assign/', AssignZoneView.as_view(), name='assignzonetouser'),
@@ -44,7 +47,8 @@ urlpatterns = [
     path('ValidatePlanning/', ValidatePlanning.as_view(), name='ValidatePlanning'),
     path('GetVisitsPlan/', GetVisitsPlan.as_view(), name='GetVisitsPlan'),
     path('ClancelVisit/', ClancelVisit.as_view(), name='ClancelVisit'),
-
+    
+    path('dashboardstats/', DashboardStats.as_view(), name='dashboardstats'),
     path('DeletePdv/', DeletePdv.as_view(), name='DeletePdv'),
     path('GetCoordinates/', GetCoordinates.as_view(), name='GetCoordinates'),
     path('RefreshCoordinates/', RefreshCoordinates.as_view(), name='RefreshCoordinates'),
