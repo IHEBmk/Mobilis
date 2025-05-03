@@ -1,3 +1,4 @@
+
 from django.utils import timezone
 from rest_framework.response import Response
 from server.authentication import CustomJWTAuthentication
@@ -78,32 +79,32 @@ def pdvVisited(request):
             elif user_profile.role == 'manager':
                 users=User.objects.filter(role='agent', manager=user_profile)
                 total_pdv = PointOfSale.objects.filter(manager__in=users).count()
-
-                visited_current_month = (
-                    Visit.objects.filter(visit_time__year=current_year, visit_time__month=current_month, agent__in=users)
-                    .values("pdv").distinct().count()
-                )
-
-                visited_last_month = (
-                    Visit.objects.filter(visit_time__year=last_year, visit_time__month=last_month, agent__in=users)
-                    .values("pdv").distinct().count()
-                )
-
-                if visited_last_month == 0:
-                    percentage_change = 100 if visited_current_month > 0 else 0
-                else:
-                    percentage_change = ((visited_current_month - visited_last_month) / visited_last_month) * 100
-
-                return ({
-                    "total_pdv": total_pdv,
-                    "visited_current_month": visited_current_month,
-                    "visited_last_month": visited_last_month,
-                    "percentage_change": round(percentage_change, 2),
-                })
             else:
                 return ({
                     "error": "Unauthorized role"
                 })
+            visited_current_month = (
+                Visit.objects.filter(visit_time__year=current_year, visit_time__month=current_month, agent__in=users)
+                .values("pdv").distinct().count()
+            )
+
+            visited_last_month = (
+                Visit.objects.filter(visit_time__year=last_year, visit_time__month=last_month, agent__in=users)
+                .values("pdv").distinct().count()
+            )
+
+            if visited_last_month == 0:
+                percentage_change = 100 if visited_current_month > 0 else 0
+            else:
+                percentage_change = ((visited_current_month - visited_last_month) / visited_last_month) * 100
+
+            return ({
+                "total_pdv": total_pdv,
+                "visited_current_month": visited_current_month,
+                "visited_last_month": visited_last_month,
+                "percentage_change": round(percentage_change, 2),
+            })
+            
         except User.DoesNotExist:
             return ({
                 "error": "User profile not found"
@@ -111,176 +112,198 @@ def pdvVisited(request):
 
 
 def AverageVisitDuration(request):
-        user = request.user
-        try:
-            user_profile = User.objects.get(id=user.id)
-            if user_profile.role == 'admin':
-                users=User.objects.filter(role='agent')
-            elif user_profile.role == 'manager':
-                users=User.objects.filter(role='agent', manager=user_profile)
-                now = timezone.now()
-                current_year, current_month = now.year, now.month
-                
-                if current_month == 1:  
-                    last_year, last_month = current_year - 1, 12
-                else:
-                    last_year, last_month = current_year, current_month - 1
+    user = request.user
+    try:
+        user_profile = User.objects.get(id=user.id)
 
-                avg_duration_current = Visit.objects.filter(
-                    visit_time__year=current_year, visit_time__month=current_month, agent__in=users
-                ).aggregate(avg_duration=Avg("duration"))["avg_duration"] or 0
+        if user_profile.role == 'admin':
+            agent_ids = User.objects.filter(role='agent').values_list('id', flat=True)
+        elif user_profile.role == 'manager':
+            agent_ids = User.objects.filter(role='agent', manager=user_profile).values_list('id', flat=True)
+        else:
+            return {"error": "Unauthorized role"}
 
-                avg_duration_last = Visit.objects.filter(
-                    visit_time__year=last_year, visit_time__month=last_month,agent_in = users
-                ).aggregate(avg_duration=Avg("duration"))["avg_duration"] or 0
+        now = timezone.now()
+        current_year, current_month = now.year, now.month
 
-                if avg_duration_last == 0:
-                    percentage_change = 100 if avg_duration_current > 0 else 0  
-                else:
-                    percentage_change = ((avg_duration_current - avg_duration_last) / avg_duration_last) * 100
+        if current_month == 1:
+            last_year, last_month = current_year - 1, 12
+        else:
+            last_year, last_month = current_year, current_month - 1
 
-                return ({
-                    "average_duration_current_month": round(avg_duration_current, 2),
-                    "average_duration_last_month": round(avg_duration_last, 2),
-                    "percentage_change": round(percentage_change, 2)
-                })
-            else:
-                return ({
-                    "error": "Unauthorized role"
-                })
-        except User.DoesNotExist:
-            return ({
-                "error": "User profile not found"
-            })
+        avg_duration_current = Visit.objects.filter(
+            visit_time__year=current_year,
+            visit_time__month=current_month,
+            agent_id__in=agent_ids
+        ).aggregate(avg_duration=Avg("duration"))["avg_duration"] or 0
+
+        avg_duration_last = Visit.objects.filter(
+            visit_time__year=last_year,
+            visit_time__month=last_month,
+            agent_id__in=agent_ids
+        ).aggregate(avg_duration=Avg("duration"))["avg_duration"] or 0
+
+        if avg_duration_last == 0:
+            percentage_change = 100 if avg_duration_current > 0 else 0
+        else:
+            percentage_change = ((avg_duration_current - avg_duration_last) / avg_duration_last) * 100
+
+        return {
+            "average_duration_current_month": round(avg_duration_current, 2),
+            "average_duration_last_month": round(avg_duration_last, 2),
+            "percentage_change": round(percentage_change, 2)
+        }
+
+    except User.DoesNotExist:
+        return {"error": "User profile not found"}
 
 
 def VisitedPDVPercentage(request):
-        user = request.user
-        try:
-            user_profile = User.objects.get(id=user.id)
-            if user_profile.role == 'admin':
-                now = timezone.now()
-                current_year, current_month = now.year, now.month
+    user = request.user
+    try:
+        user_profile = User.objects.get(id=user.id)
+        if user_profile.role == 'agent':
+            return {
+                "error": "Unauthorized role"
+            }
 
-                if current_month == 1:
-                    last_year, last_month = current_year - 1, 12
-                else:
-                    last_year, last_month = current_year, current_month - 1
+        now = timezone.now()
+        current_year, current_month = now.year, now.month
 
-                total_pdv = PointOfSale.objects.count()
-                users=User.objects.filter(role='agent')
-            if user_profile.role == 'manager':
-                users=User.objects.filter(role='agent', manager=user_profile)
-                total_pdv = PointOfSale.objects.filter(manager__in=users).count()
-                visited_pdv_current = Visit.objects.filter(
-                    visit_time__year=current_year, visit_time__month=current_month, agent__in=users
-                ).values("pdv").distinct().count()
+        if current_month == 1:
+            last_year, last_month = current_year - 1, 12
+        else:
+            last_year, last_month = current_year, current_month - 1
 
-                visited_pdv_last = Visit.objects.filter(
-                    visit_time__year=last_year, visit_time__month=last_month, agent__in=users
-                ).values("pdv").distinct().count()
+        if user_profile.role == 'admin':
+            users = User.objects.filter(role='agent')
+            total_pdv = PointOfSale.objects.count()
+        elif user_profile.role == 'manager':
+            users = User.objects.filter(role='agent', manager=user_profile)
+            total_pdv = PointOfSale.objects.filter(manager__in=users).count()
 
-                percentage_visited_current = (visited_pdv_current / total_pdv * 100) if total_pdv > 0 else 0
-                percentage_visited_last = (visited_pdv_last / total_pdv * 100) if total_pdv > 0 else 0
+        visited_pdv_current = Visit.objects.filter(
+            visit_time__year=current_year,
+            visit_time__month=current_month,
+            agent__in=users
+        ).values("pdv").distinct().count()
 
-                if percentage_visited_last == 0:
-                    percentage_change = 100 if percentage_visited_current > 0 else 0
-                else:
-                    percentage_change = ((percentage_visited_current - percentage_visited_last) / percentage_visited_last) * 100
+        visited_pdv_last = Visit.objects.filter(
+            visit_time__year=last_year,
+            visit_time__month=last_month,
+            agent__in=users
+        ).values("pdv").distinct().count()
 
-                return ({
-                    "total_pdv": total_pdv,
-                    "visited_pdv_current_month": visited_pdv_current,
-                    "visited_pdv_last_month": visited_pdv_last,
-                    "percentage_visited_current_month": round(percentage_visited_current, 2),
-                    "percentage_visited_last_month": round(percentage_visited_last, 2),
-                    "percentage_change": round(percentage_change, 2)
-                })
-            else:
-                return ({
-                    "error": "Unauthorized role"
-                })
-        except User.DoesNotExist:
-            return ({
-                "error": "User profile not found"
-            })
+        percentage_visited_current = (visited_pdv_current / total_pdv * 100) if total_pdv > 0 else 0
+        percentage_visited_last = (visited_pdv_last / total_pdv * 100) if total_pdv > 0 else 0
+
+        if percentage_visited_last == 0:
+            percentage_change = 100 if percentage_visited_current > 0 else 0
+        else:
+            percentage_change = ((percentage_visited_current - percentage_visited_last) / percentage_visited_last) * 100
+
+        return {
+            "total_pdv": total_pdv,
+            "visited_pdv_current_month": visited_pdv_current,
+            "visited_pdv_last_month": visited_pdv_last,
+            "percentage_visited_current_month": round(percentage_visited_current, 2),
+            "percentage_visited_last_month": round(percentage_visited_last, 2),
+            "percentage_change": round(percentage_change, 2)
+        }
+
+    except User.DoesNotExist:
+        return {
+            "error": "User profile not found"
+        }
     
 
 def VisitsRealizedVsGoal(request):
-        user = request.user
-        try:
-            user_profile = User.objects.get(id=user.id)
-            if user_profile.role == 'admin':
-                now = timezone.now()
-                users=User.objects.filter(role='agent')
-            elif user_profile.role == 'manager':
-                users=User.objects.filter(role='agent', manager=user_profile)
-                current_year, current_month = now.year, now.month
+    user = request.user
+    try:
+        user_profile = User.objects.get(id=user.id)
 
-                data = []
+        if user_profile.role == 'agent':
+            return {"error": "Unauthorized role"}
 
-                for i in range(6):
-                    month = current_month - i
-                    year = current_year
+        now = timezone.now()
 
-                    if month <= 0:  
-                        month += 12
-                        year -= 1
+        if user_profile.role == 'admin':
+            users = User.objects.filter(role='agent')
+        elif user_profile.role == 'manager':
+            users = User.objects.filter(role='agent', manager=user_profile)
 
-                    realized_visits = Visit.objects.filter(
-                        visit_time__year=year, visit_time__month=month, agent__in=users
-                    ).count()
+        current_year, current_month = now.year, now.month
+        data = []
 
-                    goal_visits = PointOfSale.objects.filter(manager__in=users).values("zone").annotate(total_pdv=Count("id"))
-                    total_goal_visits = sum(zone["total_pdv"] for zone in goal_visits)
+        for i in range(6):
+            month = current_month - i
+            year = current_year
 
-                    # Append to result list
-                    data.append({
-                        "year": year,
-                        "month": month,
-                        "realized_visits": realized_visits,
-                        "goal_visits": total_goal_visits
-                    })
+            if month <= 0:
+                month += 12
+                year -= 1
 
-                return ({data})
-            else:
-                return ({
-                    "error": "Unauthorized role"
-                })
-        except User.DoesNotExist:
-            return ({
-                "error": "User profile not found"
+            realized_visits = Visit.objects.filter(
+                visit_time__year=year,
+                visit_time__month=month,
+                agent__in=users
+            ).count()
+
+            goal_visits = PointOfSale.objects.filter(
+                manager__in=users
+            ).values("zone").annotate(total_pdv=Count("id"))
+
+            total_goal_visits = sum(zone["total_pdv"] for zone in goal_visits)
+
+            data.append({
+                "year": year,
+                "month": month,
+                "realized_visits": realized_visits,
+                "goal_visits": total_goal_visits
             })
+
+        return (data)
+
+    except User.DoesNotExist:
+        return ({"error": "User profile not found"})
     
 
-def LastWeekVisits( request):
-        user = request.user
-        try:
-            user_profile = User.objects.get(id=user.id)
-            if user_profile.role == 'admin':
-                users=User.objects.filter(role='agent')
-            elif user_profile.role == 'manager':
-                users=User.objects.filter(role='agent', manager=user_profile)
-                now = timezone.now()
-                last_week = now - timezone.timedelta(days=7)
+def LastWeekVisits(request):
+    user = request.user
+    try:
+        user_profile = User.objects.get(id=user.id)
+        if user_profile.role == 'agent':
+            return {
+                "error": "Unauthorized role"
+            }
 
-                visits = Visit.objects.filter(visit_time__gte=last_week,agent_in=users).select_related("agent", "pdv__commune").values(
-                    "id",
-                    "visit_time",
-                    "duration",
-                    agent_email=F("agent__email"),
-                    commune_name=F("pdv__commune__name")
-                )
+        if user_profile.role == 'admin':
+            users = User.objects.filter(role='agent')
+        elif user_profile.role == 'manager':
+            users = User.objects.filter(role='agent', manager=user_profile)
 
-                return ({list(visits)})
-            else:
-                return ({
-                    "error": "Unauthorized role"
-                })
-        except User.DoesNotExist:
-            return ({
-                "error": "User profile not found"
-            })
+        now = timezone.now()
+        last_week = now - timezone.timedelta(days=7)
+
+        visits = Visit.objects.filter(
+            visit_time__gte=last_week,
+            agent__in=users
+        ).select_related("agent", "pdv__commune").values(
+            "id",
+            "visit_time",
+            "duration",
+            agent_email=F("agent__email"),
+            commune_name=F("pdv__commune__name")
+        )
+
+        return {
+            "visits": list(visits)
+        }
+
+    except User.DoesNotExist:
+        return {
+            "error": "User profile not found"
+        }
     
     
 
@@ -288,37 +311,37 @@ def ZoneStatsAPIView(request):
         user = request.user
         try:
             user_profile = User.objects.get(id=user.id) 
-            
+            if user_profile.role=='agent':
+                return ({
+                    "error": "Unauthorized role"
+                })
             if user_profile.role == 'admin':
                 users=User.objects.filter(role='agent')
             elif user_profile.role == 'manager':
                 users=User.objects.filter(role='agent', manager=user_profile)
-                now = timezone.now()
-                start_of_week = now - timezone.timedelta(days=now.weekday())  
+            now = timezone.now()
+            start_of_week = now - timezone.timedelta(days=now.weekday())  
 
-                zones = Zone.objects.filter(manager__in=users).select_related("manager").annotate(
-                    total_pdv=Count("pointofsale"), 
-                    visited_pdv=Count(
-                        "pointofsale__visit",
-                        filter=Q(pointofsale__visit__visit_time__gte=start_of_week),
-                        distinct=True
-                    ) 
-                )
+            zones = Zone.objects.filter(manager__in=users).select_related("manager").annotate(
+                total_pdv=Count("pointofsale"), 
+                visited_pdv=Count(
+                    "pointofsale__visit",
+                    filter=Q(pointofsale__visit__visit_time__gte=start_of_week),
+                    distinct=True
+                ) 
+            )
 
-                data = []
-                for zone in zones:
-                    data.append({
-                        "zone_id": str(zone.id),
-                        "zone_manager": f"{zone.manager.first_name} {zone.manager.last_name}" if zone.manager else None,
-                        "total_pdv": zone.total_pdv,
-                        "visited_pdv_this_week": zone.visited_pdv,
-                    })
-
-                return {data}
-            else:
-                return ({
-                    "error": "Unauthorized role"
+            data = []
+            for zone in zones:
+                data.append({
+                    "zone_id": str(zone.id),
+                    "zone_manager": f"{zone.manager.first_name} {zone.manager.last_name}" if zone.manager else None,
+                    "total_pdv": zone.total_pdv,
+                    "visited_pdv_this_week": zone.visited_pdv,
                 })
+
+            return data
+           
         except User.DoesNotExist:
             return ({
                 "error": "User profile not found"
