@@ -17,9 +17,9 @@ def CommerciauxActifs(request):
             elif user_profile.role == 'manager':
                 commerciaux = User.objects.filter(role='agent', manager=user_profile)
             elif user_profile.role == 'agent':
-                return Response({
+                return ({
                     "error": "Unauthorized role"
-                }, status=status.HTTP_403_FORBIDDEN)
+                })
                 
             now = timezone.now()
             current_year, current_month = now.year, now.month
@@ -46,17 +46,17 @@ def CommerciauxActifs(request):
             else:
                 percentage_change = ((actifs_current - actifs_last) / actifs_last) * 100
 
-            return Response({
+            return ({
                 'total': commerciaux.count(),
                 'actifs_current_month': actifs_current,
                 'actifs_last_month': actifs_last,
                 'percentage_change': round(percentage_change, 2)
-            }, status=status.HTTP_200_OK)
+            })
             
         except User.DoesNotExist:
-            return Response({
+            return ({
                 "error": "User profile not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+            })
 
     
 
@@ -94,20 +94,20 @@ def pdvVisited(request):
                 else:
                     percentage_change = ((visited_current_month - visited_last_month) / visited_last_month) * 100
 
-                return Response({
+                return ({
                     "total_pdv": total_pdv,
                     "visited_current_month": visited_current_month,
                     "visited_last_month": visited_last_month,
                     "percentage_change": round(percentage_change, 2),
-                }, status=status.HTTP_200_OK)
+                })
             else:
-                return Response({
+                return ({
                     "error": "Unauthorized role"
-                }, status=status.HTTP_403_FORBIDDEN)
+                })
         except User.DoesNotExist:
-            return Response({
+            return ({
                 "error": "User profile not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+            })
 
 
 def AverageVisitDuration(request):
@@ -139,19 +139,19 @@ def AverageVisitDuration(request):
                 else:
                     percentage_change = ((avg_duration_current - avg_duration_last) / avg_duration_last) * 100
 
-                return Response({
+                return ({
                     "average_duration_current_month": round(avg_duration_current, 2),
                     "average_duration_last_month": round(avg_duration_last, 2),
                     "percentage_change": round(percentage_change, 2)
-                }, status=status.HTTP_200_OK)
+                })
             else:
-                return Response({
+                return ({
                     "error": "Unauthorized role"
-                }, status=status.HTTP_403_FORBIDDEN)
+                })
         except User.DoesNotExist:
-            return Response({
+            return ({
                 "error": "User profile not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+            })
 
 
 def VisitedPDVPercentage(request):
@@ -188,22 +188,22 @@ def VisitedPDVPercentage(request):
                 else:
                     percentage_change = ((percentage_visited_current - percentage_visited_last) / percentage_visited_last) * 100
 
-                return Response({
+                return ({
                     "total_pdv": total_pdv,
                     "visited_pdv_current_month": visited_pdv_current,
                     "visited_pdv_last_month": visited_pdv_last,
                     "percentage_visited_current_month": round(percentage_visited_current, 2),
                     "percentage_visited_last_month": round(percentage_visited_last, 2),
                     "percentage_change": round(percentage_change, 2)
-                }, status=status.HTTP_200_OK)
+                })
             else:
-                return Response({
+                return ({
                     "error": "Unauthorized role"
-                }, status=status.HTTP_403_FORBIDDEN)
+                })
         except User.DoesNotExist:
-            return Response({
+            return ({
                 "error": "User profile not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+            })
     
 
 def VisitsRealizedVsGoal(request):
@@ -242,15 +242,15 @@ def VisitsRealizedVsGoal(request):
                         "goal_visits": total_goal_visits
                     })
 
-                return Response(data, status=status.HTTP_200_OK)
+                return ({data})
             else:
-                return Response({
+                return ({
                     "error": "Unauthorized role"
-                }, status=status.HTTP_403_FORBIDDEN)
+                })
         except User.DoesNotExist:
-            return Response({
+            return ({
                 "error": "User profile not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+            })
     
 
 def LastWeekVisits( request):
@@ -272,15 +272,15 @@ def LastWeekVisits( request):
                     commune_name=F("pdv__commune__name")
                 )
 
-                return Response(list(visits), status=status.HTTP_200_OK)
+                return ({list(visits)})
             else:
-                return Response({
+                return ({
                     "error": "Unauthorized role"
-                }, status=status.HTTP_403_FORBIDDEN)
+                })
         except User.DoesNotExist:
-            return Response({
+            return ({
                 "error": "User profile not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+            })
     
     
 
@@ -314,15 +314,15 @@ def ZoneStatsAPIView(request):
                         "visited_pdv_this_week": zone.visited_pdv,
                     })
 
-                return Response(data, status=status.HTTP_200_OK)
+                return {data}
             else:
-                return Response({
+                return ({
                     "error": "Unauthorized role"
-                }, status=status.HTTP_403_FORBIDDEN)
+                })
         except User.DoesNotExist:
-            return Response({
+            return ({
                 "error": "User profile not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+            })
     
 
 class DashboardStats(APIView):
