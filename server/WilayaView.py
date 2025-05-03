@@ -85,7 +85,7 @@ class GetGeojson(APIView):
             for wilaya in wilayas:
                 geojson[str(wilaya.name)]=wilaya.geojson
             if geojson:
-                return Response({'geojsons':(geojson)}, status=status.HTTP_200_OK, content_type='application/json')
+                return Response({'geojson':(geojson)}, status=status.HTTP_200_OK, content_type='application/json')
             else:
                 return Response({'error': 'geojson not found'}, status=status.HTTP_404_NOT_FOUND)
         elif user.role=='agent':
