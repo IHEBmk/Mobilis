@@ -83,7 +83,7 @@ class GetGeojson(APIView):
             wilayas=Wilaya.objects.all()
             geojson={}
             for wilaya in wilayas:
-                geojson[str(wilaya.name)]=wilaya.geojson
+                geojson[str(wilaya.name)]=json.loads(wilaya.geojson) if wilaya.geojson else None
             if geojson:
                 return Response({'geojson':(geojson)}, status=status.HTTP_200_OK, content_type='application/json')
             else:
