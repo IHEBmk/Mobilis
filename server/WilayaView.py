@@ -80,9 +80,12 @@ class GetGeojson(APIView):
             else:
                 return Response({'error': 'geojson not found'}, status=status.HTTP_404_NOT_FOUND)
         elif user.role=='admin':
-            geojson=Wilaya.objects.all().geojson
+            wilayas=Wilaya.objects.all()
+            geojson={}
+            for wilaya in wilayas:
+                geojson[str(wilaya.name)]=wilaya.geojson
             if geojson:
-                return Response({'geojson':json.loads(geojson)}, status=status.HTTP_200_OK, content_type='application/json')
+                return Response({'geojsons':(geojson)}, status=status.HTTP_200_OK, content_type='application/json')
             else:
                 return Response({'error': 'geojson not found'}, status=status.HTTP_404_NOT_FOUND)
         elif user.role=='agent':
