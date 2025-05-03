@@ -39,6 +39,8 @@ def get_tokens_for_user(user):
     # Add custom claims
     refresh['user_id'] = str(user.id)
     refresh['role'] = user.role
+    refresh['first_name'] = user.first_name
+    refresh['last_name'] = user.last_name
     
     return {
         'refresh': str(refresh),
