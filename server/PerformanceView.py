@@ -18,6 +18,9 @@ class getGlobalPerformancePDV(APIView):
     def get(self, request):
         # Get the user's performance data
         user = request.user
+        data = request.query_params
+        page_size = int(data.get('page_size', 10))
+        page_num = int(data.get('page', 1))
         data=request.query_params
         if not user:
             return Response({'message': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -60,15 +63,22 @@ class getGlobalPerformancePDV(APIView):
                         .annotate(visit_count=Count("id"))
                         .order_by("-visit_count")  # Sort descending
                     ))
+            if len(users)<page_num*page_size:
+                Response({'message':'success',
+                    'percentage_visit': percentage_visit,
+                    'users_performance': users if users else None,}
+                , status=status.HTTP_200_OK)
+            else:
+                for user in users:
+                    
+                    user['objective']=PointOfSale.objects.filter(manager=user['id']).count()
+                    user['visited_number']= next((item['visit_count'] for item in top_visitors if item['agent'] == user['id']), 0)
+                    user['performance']=round(user['visited_number']/user['objective']*100,2) if user['objective']>0 else 0
             
-            for user in users:
-                user['objective']=PointOfSale.objects.filter(manager=user['id']).count()
-                user['visited_number']= next((item['visit_count'] for item in top_visitors if item['agent'] == user['id']), 0)
-                user['performance']=round(user['visited_number']/user['objective']*100,2) if user['objective']>0 else 0
-        return Response(
+            return Response(
             {'message':'success',
                 'percentage_visit': percentage_visit,
-                'users_performance': users if users else None,}
+                'users_performance': users[page_num*page_size-page_size:page_num*page_size] if users else None,}
             , status=status.HTTP_200_OK
         )
         
