@@ -79,5 +79,11 @@ class GetGeojson(APIView):
                 return Response({'geojson':json.loads(geojson)}, status=status.HTTP_200_OK, content_type='application/json')
             else:
                 return Response({'error': 'geojson not found'}, status=status.HTTP_404_NOT_FOUND)
-        else:
+        elif user.role=='admin':
+            geojson=Wilaya.objects.all().geojson
+            if geojson:
+                return Response({'geojson':json.loads(geojson)}, status=status.HTTP_200_OK, content_type='application/json')
+            else:
+                return Response({'error': 'geojson not found'}, status=status.HTTP_404_NOT_FOUND)
+        elif user.role=='agent':
             return Response({'error': 'You are not authorized to view this page'}, status=status.HTTP_403_FORBIDDEN)
