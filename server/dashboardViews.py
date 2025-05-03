@@ -338,7 +338,6 @@ class DashboardStats(APIView):
             json_data['visits_realized_vs_goal']=VisitsRealizedVsGoal(request)
             json_data['last_week_visits']=LastWeekVisits(request)
             json_data['zone_stats']=ZoneStatsAPIView(request)
-            json_data['agent_coordinates']=AgentCoordinatesAPIView(request)
             return Response(json_data, status=status.HTTP_200_OK)
         except User.DoesNotExist:
             return Response({
