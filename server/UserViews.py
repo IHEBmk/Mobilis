@@ -55,6 +55,10 @@ class LoginView(APIView):
             return Response({
                 'message': 'Login successful',
                 'user_id': str(user.id),
+                'wilaya_name': user.wilaya.name if user.wilaya else None,
+                'wilaya_id': str(user.wilaya.id) if user.wilaya else None,
+                
+                
                 'role': user.role,
                 'tokens': tokens
             })
