@@ -40,7 +40,25 @@ class SignupView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-
+class GetUsers(APIView):
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        user = request.user
+        if not user:
+            return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.role == 'admin':
+            users = User.objects.all()
+        elif user.role == 'manager':
+            users = User.objects.filter(manager=user)
+        elif user.role == 'agent':
+            return Response({'error': 'You are not authorized to view this page'}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            return Response({'error': 'You are not authorized to view this page'}, status=status.HTTP_403_FORBIDDEN)
+        serialized_users = []
+        for user in users:
+            serialized_users.append(model_to_dict(user))
+        return Response({'users': serialized_users}, status=status.HTTP_200_OK)
 class LoginView(APIView):
     authentication_classes = []
     permission_classes = []
