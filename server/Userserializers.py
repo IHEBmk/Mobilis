@@ -9,7 +9,7 @@ import hashlib
 class UserSignupSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['email', 'phone', 'password', 'role', 'wilaya']
+        fields = ['email', 'phone', 'password', 'role', 'wilaya','manager']
         extra_kwargs = {'password': {'write_only': True}}
 
     def validate(self, data):
@@ -31,14 +31,16 @@ class UserSignupSerializer(serializers.ModelSerializer):
         # Validate manager
         if data.get('role') == 'agent':
             try:
-                manager = User.objects.get(id=data.get('manager'))
+                
+                if data.get('manager')!=None:
+                    manager = data.get('manager')
             except User.DoesNotExist:
                 raise serializers.ValidationError("Manager does not exist.")
-            
-            if manager.role != 0:
+            if manager.role != 'manager':
                 raise serializers.ValidationError("Manager must be a manager.")
             data['manager'] = manager
-            
+            print("here")
+            print(data['manager'])
         data['created_at'] = datetime.now()
         data['id'] = uuid.uuid4()
                 # Validate agence
