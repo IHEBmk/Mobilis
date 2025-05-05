@@ -8,7 +8,7 @@ from rest_framework import status
 import pandas as pd
 import pandas as pd
 from server.authentication import CustomJWTAuthentication
-from server.ZoningModel import merge_geojsons
+
 from server.ZoneSerializer import ZoneSerializer
 from server.models import Commune, PointOfSale, User, Wilaya
 from rest_framework.permissions import IsAuthenticated
@@ -247,28 +247,7 @@ class GetGeojsonWilaya(APIView):
                          'geojson': geosjon}, status=status.HTTP_200_OK)
 
 
-class GetGeojsonGlobal(APIView):
-    def get(self, request):
-        id = request.data.get('id')
-        if not id:
-            return Response({'error': 'ID is required'}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            user = User.objects.get(id=id)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
-        if user.role!='admin':
-            pass
-            #return Response({'error': 'you can\'t retrieve zones'}, status=status.HTTP_401_UNAUTHORIZED)
-        wilayas=list(Wilaya.objects.all().values())
 
-        geojson_list=[]
-        for wilaya in wilayas:
-            if wilaya['geojson']==None:
-                continue
-            geojson_list.append((wilaya['geojson']))
-        global_geojson=merge_geojsons(geojson_list)
-        return Response({'geojson': global_geojson}, status=status.HTTP_200_OK)
-        
         
 
 
