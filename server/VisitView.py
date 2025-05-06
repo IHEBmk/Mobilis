@@ -73,8 +73,21 @@ class VisitPdv(APIView):
             return Response({'error': "You are not an agent"}, status=status.HTTP_403_FORBIDDEN)
 
         try:
+            # Get the visit that is scheduled for the Point of Sale and agent
             visit = Visit.objects.get(pdv=pdv, agent=user, status='scheduled')
 
+            # Check if the visit deadline is tomorrow or later
+            if visit.deadline >= timezone.now():
+                # Get today's date in the local timezone
+                today = timezone.localdate()
+
+                # Filter visits that are scheduled for today and not yet completed
+                today_visits = Visit.objects.filter(agent=user, validated=1, status='scheduled', deadline__date=today)
+
+                # If there are any scheduled visits for today, return an error
+                if today_visits.exists():
+                    return Response({'error': 'You can\'t visit non-scheduled visits until you finish the current scheduled visits'}, 
+                                    status=status.HTTP_400_BAD_REQUEST)
             visit.status = 'visited'
             visit.visit_time=timezone.now()
             visit.save()
@@ -102,22 +115,13 @@ class VisitPdv(APIView):
                 for visit in visits:
                     deadline = max(deadline, visit.deadline)
                     visit.delete()
-
                 future_start = now + timedelta(days=1)
                 number_of_days = (deadline - future_start).days
                 daily_limit_minutes = 7 * 60
                 total_time_minutes = number_of_days * daily_limit_minutes
-
                 # Assuming you are planning again with all PDVs managed by user
                 data_points = list(PointOfSale.objects.filter(manager=user).values())
-
-                routes, edges, estimates = plan_multiple_days([start_point] + data_points, total_time_minutes, daily_limit_minutes, speed_kmph)
-
-                number_of_visits = sum(len(route) - 1 for route in routes)
-                warning = None
-                if number_of_visits != len(data_points):
-                    warning = "The CVI won't be able to visit all the points."
-
+                routes, edges, estimates = plan_multiple_days([start_point] + data_points, daily_limit_minutes, speed_kmph)
                 new_visits = []
                 for day_index, route in enumerate(routes):
                     for order, point_name in enumerate(route[1:], start=1):  # skip start point
@@ -209,15 +213,23 @@ class MakePlanning(APIView):
         data_points = list(PointOfSale.objects.filter(manager=cvi).values())
         routes, edges, estimates = plan_multiple_days(
             [start_point] + data_points,
-            total_time_minutes,
             daily_limit_minutes,
             speed_kmph
         )
-        
-        number_of_visits = sum(len(route) - 1 for route in routes)
+        estimated_days=len(routes)
         warning = None
-        if number_of_visits != len(data_points):
+        if estimated_days>number_of_days:
             warning = "The CVI won't be able to visit all the points"
+            suggestion='Increase the deadline'
+            return Response({
+            'message': 'Visits could not be scheduled',
+            'visits_number': len(visits),
+            'number_of_days': number_of_days,
+            'estimated_days':estimated_days,
+            'number_of_points':len(data_points),
+            'suggestion':suggestion,
+            'warning': warning
+        }, status=status.HTTP_400_BAD_REQUEST)
         visits = []
         for day_index, route in enumerate(routes):
             for order_index, point_name in enumerate(route[1:], start=1):  # skip 'Start'
