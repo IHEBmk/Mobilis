@@ -15,5 +15,4 @@ gunicorn
 psycopg2-binary
 networkx
 argparse
-collections
 sklearn
