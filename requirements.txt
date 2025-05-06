@@ -14,5 +14,4 @@ Shapely==2.1.0
 gunicorn
 psycopg2-binary
 networkx
-argparse
-sklearn
+scikit-learn
