@@ -65,5 +65,5 @@ urlpatterns = [
     path('GetGeojson/', GetGeojson.as_view(), name='GetUsers'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('AddAgence/', AddAgence.as_view(), name='AddAgence'),
-    path('generatezones/', GenerateZones.as_view(), name='GenerateZones'),
+    path('GenerateZones/', GenerateZones.as_view(), name='GenerateZones'),
 ]
