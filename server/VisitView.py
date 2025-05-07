@@ -112,15 +112,17 @@ class VisitPdv(APIView):
                 }
 
                 deadline = now
+                points=[]
                 for visit in visits:
-                    deadline = max(deadline, visit.deadline)
+                    points.append(visit.pdv.id)
                     visit.delete()
+                deadline=user.deadline
                 future_start = now + timedelta(days=1)
                 number_of_days = (deadline - future_start).days
                 daily_limit_minutes = 7 * 60
                 total_time_minutes = number_of_days * daily_limit_minutes
                 # Assuming you are planning again with all PDVs managed by user
-                data_points = list(PointOfSale.objects.filter(manager=user).values())
+                data_points = list(PointOfSale.objects.filter(manager=user,id__in=points).values())
                 routes, edges, estimates = plan_multiple_days([start_point] + data_points, daily_limit_minutes, speed_kmph)
                 new_visits = []
                 for day_index, route in enumerate(routes):
@@ -246,7 +248,8 @@ class MakePlanning(APIView):
                     ))
 
         Visit.objects.bulk_create(visits)
-
+        cvi.deadline=deadline
+        cvi.save()
         return Response({
             'message': 'Visits scheduled successfully',
             'visits_number': len(visits),
