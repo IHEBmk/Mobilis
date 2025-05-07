@@ -225,6 +225,7 @@ class PointOfSale(models.Model):
     closing_time = models.TimeField(blank=True, null=True)
     store_type = models.TextField(blank=True, null=True)
     contact = models.TextField(blank=True, null=True)
+    type = models.TextField(blank=True, null=True)
 
     class Meta:
         managed = False
@@ -260,6 +261,29 @@ class ProspectObjectives(models.Model):
         db_table = 'prospect_objectives'
 
 
+class TokenBlacklistBlacklistedtoken(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    blacklisted_at = models.DateTimeField()
+    token = models.OneToOneField('TokenBlacklistOutstandingtoken', models.DO_NOTHING)
+
+    class Meta:
+        managed = False
+        db_table = 'token_blacklist_blacklistedtoken'
+
+
+class TokenBlacklistOutstandingtoken(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    token = models.TextField()
+    created_at = models.DateTimeField(blank=True, null=True)
+    expires_at = models.DateTimeField()
+    user = models.ForeignKey(AuthUser, models.DO_NOTHING, blank=True, null=True)
+    jti = models.CharField(unique=True, max_length=255)
+
+    class Meta:
+        managed = False
+        db_table = 'token_blacklist_outstandingtoken'
+
+
 class User(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
     role = models.TextField()
@@ -275,6 +299,7 @@ class User(models.Model):
     status = models.TextField(blank=True, null=True)
     profile_picture = models.TextField(blank=True, null=True)
     agence = models.ForeignKey(Agence, models.DO_NOTHING, db_column='Agence', blank=True, null=True)  # Field name made lowercase.
+    deadline = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         managed = False
