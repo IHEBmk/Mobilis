@@ -3154,6 +3154,11 @@ def export_zones_to_geojson(df, zones, zone_workloads, zone_communes, zone_polyg
 
 def create_map_visualization_from_geojson(geojson_path, output_file="territory_map.html"):
     """Create interactive map visualization with zone boundaries from GeoJSON file"""
+    import json
+    import folium
+    import numpy as np
+    import matplotlib.pyplot as plt
+    
     print(f"Creating map visualization at {output_file} from {geojson_path}...")
     
     try:
@@ -3161,29 +3166,37 @@ def create_map_visualization_from_geojson(geojson_path, output_file="territory_m
         with open(geojson_path, 'r') as f:
             geojson_data = json.load(f)
         
+        # Debug prints to understand the structure
+        print(f"GeoJSON keys: {list(geojson_data.keys())}")
+        
+        # For nested 'geojson' structure (based on your sample)
+        if 'geojson' in geojson_data:
+            print("Found nested 'geojson' key, using that as the main data structure")
+            geojson_data = geojson_data['geojson']
+            print(f"Nested GeoJSON keys: {list(geojson_data.keys())}")
+        
         # Extract metadata and features
         metadata = geojson_data.get('metadata', {})
+        print(f"Metadata found: {bool(metadata)}")
         
-        # Ensure zone_features is properly loaded
-        zone_features = []
-        raw_features = geojson_data.get('features', [])
+        # Check if features exist directly
+        zone_features = geojson_data.get('features', [])
         
-        if not raw_features:
-            print("Warning: No zone features found in GeoJSON")
+        # If no features directly in the geojson, it might be a nested structure
+        if not zone_features and isinstance(geojson_data, dict):
+            # Look for features in the root structure
+            for key in geojson_data.keys():
+                if key not in ('type', 'metadata', 'points'):  # Skip known keys
+                    potential_features = geojson_data.get(key, [])
+                    if isinstance(potential_features, list) and potential_features:
+                        # Check if it looks like features
+                        if all(isinstance(item, dict) and 'geometry' in item for item in potential_features):
+                            zone_features = potential_features
+                            print(f"Found features in key: {key}")
+                            break
         
-        # Make sure features are properly parsed
-        if isinstance(raw_features, str):
-            try:
-                parsed_features = json.loads(raw_features)
-                if isinstance(parsed_features, list):
-                    zone_features = parsed_features
-                else:
-                    print("Warning: Features JSON does not contain a list")
-            except json.JSONDecodeError:
-                print("Warning: Could not parse features as JSON")
-        else:
-            zone_features = raw_features
-            
+        print(f"Number of zone features found: {len(zone_features)}")
+        
         # Validate zone features
         valid_zone_features = []
         for feature in zone_features:
@@ -3191,6 +3204,7 @@ def create_map_visualization_from_geojson(geojson_path, output_file="territory_m
             if (isinstance(feature, dict) and 
                 'properties' in feature and 
                 'geometry' in feature and
+                feature.get('geometry', {}).get('type') == 'Polygon' and
                 'zone_id' in feature.get('properties', {})):
                 valid_zone_features.append(feature)
         
@@ -3198,45 +3212,28 @@ def create_map_visualization_from_geojson(geojson_path, output_file="territory_m
             print(f"Warning: {len(zone_features) - len(valid_zone_features)} invalid zone features removed")
         
         zone_features = valid_zone_features
+        print(f"Number of valid zone features: {len(zone_features)}")
                 
-        # Parse point features with validation
+        # Parse point features from the nested 'points' structure
         point_features = []
         points_data = geojson_data.get('points', {})
         
-        if isinstance(points_data, str):
-            try:
-                parsed_points = json.loads(points_data)
-                if isinstance(parsed_points, dict) and 'features' in parsed_points:
-                    raw_point_features = parsed_points.get('features', [])
-                    
-                    # Validate each point feature
-                    for point in raw_point_features:
-                        if (isinstance(point, dict) and 
-                            'geometry' in point and 
-                            'coordinates' in point.get('geometry', {}) and
-                            'properties' in point and
-                            'zone_id' in point.get('properties', {})):
-                            point_features.append(point)
-                else:
-                    print("Warning: Points JSON does not have expected format")
-            except json.JSONDecodeError:
-                print("Warning: Could not parse points as JSON")
-        elif isinstance(points_data, dict) and 'features' in points_data:
+        if isinstance(points_data, dict) and 'features' in points_data:
             raw_point_features = points_data.get('features', [])
             
             # Validate each point feature
             for point in raw_point_features:
                 if (isinstance(point, dict) and 
                     'geometry' in point and 
+                    point.get('geometry', {}).get('type') == 'Point' and
                     'coordinates' in point.get('geometry', {}) and
                     'properties' in point and
                     'zone_id' in point.get('properties', {})):
                     point_features.append(point)
         
-        if not point_features:
-            print("Warning: No valid point features found in GeoJSON")
+        print(f"Number of valid point features found: {len(point_features)}")
         
-        # Calculate map center from points with validation
+        # Calculate map center from points
         lats = []
         lons = []
         
@@ -3252,6 +3249,7 @@ def create_map_visualization_from_geojson(geojson_path, output_file="territory_m
         if lats and lons:
             center_lat = sum(lats) / len(lats)
             center_lon = sum(lons) / len(lons)
+            print(f"Map center calculated from points: ({center_lat}, {center_lon})")
         else:
             # Try to determine center from zone features if no points available
             all_coords = []
@@ -3268,14 +3266,15 @@ def create_map_visualization_from_geojson(geojson_path, output_file="territory_m
                 if lats and lons:
                     center_lat = sum(lats) / len(lats)
                     center_lon = sum(lons) / len(lons)
+                    print(f"Map center calculated from zone polygons: ({center_lat}, {center_lon})")
                 else:
-                    center_lat = 0
-                    center_lon = 0
+                    center_lat = 36.7 # Default values for Algeria (based on your coordinates)
+                    center_lon = 3.2
+                    print(f"Using default map center: ({center_lat}, {center_lon})")
             else:
-                center_lat = 0
-                center_lon = 0
-        
-        print(f"Map center: ({center_lat}, {center_lon})")
+                center_lat = 36.7 # Default values for Algeria
+                center_lon = 3.2
+                print(f"Using default map center: ({center_lat}, {center_lon})")
         
         # Create base map
         mymap = folium.Map(location=[center_lat, center_lon], zoom_start=11)
@@ -3287,13 +3286,19 @@ def create_map_visualization_from_geojson(geojson_path, output_file="territory_m
             if zone_id is not None:
                 zone_ids.add(zone_id)
         
-        if not zone_ids:
-            print("Warning: No valid zone IDs found")
+        zone_ids = sorted(list(zone_ids))
+        print(f"Zone IDs found: {zone_ids}")
         
         num_zones = len(zone_ids)
-        colors = plt.cm.rainbow(np.linspace(0, 1, max(num_zones, 1)))
-        zone_colors = {i: f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}' 
-                      for i, (r, g, b, _) in enumerate(colors)}
+        if num_zones > 0:
+            colors = plt.cm.rainbow(np.linspace(0, 1, max(num_zones, 1)))
+            zone_colors = {}
+            for i, zone_id in enumerate(zone_ids):
+                r, g, b, _ = colors[i]
+                zone_colors[zone_id] = f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
+        else:
+            print("Warning: No valid zone IDs found")
+            zone_colors = {}
         
         # Add zone polygons first (below points)
         for feature in zone_features:
@@ -3397,6 +3402,7 @@ def create_map_visualization_from_geojson(geojson_path, output_file="territory_m
                             print(f"Error adding point: {e}")
                 
                 fg.add_to(mymap)
+                print(f"Added {points_added} points for zone {zone_id}")
             else:
                 print(f"Warning: Zone ID {zone_id} not in color scheme for points")
         
@@ -3612,4 +3618,3 @@ parser.add_argument('--commune_geojson', help='Optional GeoJSON file with commun
 #                         "zones.geojson", "geoBoundaries-DZA-ADM3.geojson")
 
 # # Create map visualization from the GeoJSON file
-# create_map_visualization_from_geojson("zones.geojson", "territory_map.html")
