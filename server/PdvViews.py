@@ -265,9 +265,8 @@ class GetOnePdv(APIView):
             pdv=PointOfSale.objects.get(id=data.get('pdv'))
         except User.DoesNotExist or PointOfSale.DoesNotExist or Commune.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
-        commune=Commune.objects.get(id=pdv.commune)
         if user.role=='manager':
-            wilaya=Wilaya.objects.get(id=commune.wilaya)
+            wilaya=pdv.commune.wilaya
             if user.wilaya!=wilaya:
                 return Response({'error':'you can\'t update this pdv'}, status=status.HTTP_400_BAD_REQUEST)
             return Response({'pdv':model_to_dict(pdv)}, status=status.HTTP_200_OK)
