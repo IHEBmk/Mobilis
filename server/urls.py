@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from server.AgencieView import AddAgence, UploadAgencies
+from server.cviViews import CVICoordinatesAPIView, CVIDetailsAPIView, CVILastVisitsAPIView, CVIProfileAPIView, CVIVisitPerformanceAPIView, CVIVisitsRealizedVsGoal
 from server.CoordinatesView import GetCoordinates, RefreshCoordinates
 from server.PerformanceView import getGlobalPerformancePDV, getVisitPerformance
 from server.UserViews import AssignZoneView, GenerateAgents, GenerateManager, GenerateWilayaManagers, GenerateWilayasManagers, GetUsers, LoginView, SignupView
@@ -48,7 +49,12 @@ urlpatterns = [
     path('ValidatePlanning/', ValidatePlanning.as_view(), name='ValidatePlanning'),
     path('GetVisitsPlan/', GetVisitsPlan.as_view(), name='GetVisitsPlan'),
     path('ClancelVisit/', ClancelVisit.as_view(), name='ClancelVisit'),
-    
+    path('cvi/list/', CVIDetailsAPIView.as_view(), name='cvi_list'),
+    path('cvi/<uuid:cvi_id>/profile/', CVIProfileAPIView.as_view(), name='cvi_profile'),
+    path('cvi/<uuid:cvi_id>/last_visits/', CVILastVisitsAPIView.as_view(), name='cvi_last_visits'),
+    path('cvi/<uuid:cvi_id>/visits_realized_vs_goal/', CVIVisitsRealizedVsGoal.as_view(), name='cvi_visits_realized_vs_goal'),
+    path('cvi/<uuid:cvi_id>/visit_performance/', CVIVisitPerformanceAPIView.as_view(), name='cvi_visit_performance'),   
+    path('cvi/<uuid:cvi_id>/coordinates/', CVICoordinatesAPIView.as_view(), name='cvi_coordinates'),
     path('dashboardstats/', DashboardStats.as_view(), name='dashboardstats'),
     path('DeletePdv/', DeletePdv.as_view(), name='DeletePdv'),
     path('GetCoordinates/', GetCoordinates.as_view(), name='GetCoordinates'),
