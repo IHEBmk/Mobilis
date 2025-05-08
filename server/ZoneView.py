@@ -10,7 +10,7 @@ import pandas as pd
 from server.authentication import CustomJWTAuthentication
 
 from server.ZoneSerializer import ZoneSerializer
-from server.models import Commune, PointOfSale, User, Wilaya
+from server.models import Commune, PointOfSale, User, Wilaya,Zone,Visit
 from rest_framework.permissions import IsAuthenticated
 from server.zoning import assign_communes_from_geojson, create_balanced_zones, export_zones_to_geojson, generate_zone_boundaries, load_data
 
@@ -306,6 +306,30 @@ class GetGeojsonWilaya(APIView):
                          'geojson': geosjon}, status=status.HTTP_200_OK)
 
 
+class GetZones(APIView):
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        user = request.user
+        if not user:
+            return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.role == 'admin':
+            zones = Zone.objects.all()
+        elif user.role == 'manager':
+            supervised_agents = User.objects.filter(manager=user.id).values()
+            zones = list(Zone.objects.filter(manager__in=supervised_agents).values())
+        else:
+            return Response({'error': 'you can\'t retrieve zones'}, status=status.HTTP_401_UNAUTHORIZED)
+        for zone in zones:
+            zone['manager']=zone['manager'].first_name
+            zone['wilaya']=zone['commune'].wilaya.name
+            pdvs=PointOfSale.objects.filter(zone=zone['id'])
+            zone['pdvs']=len(pdvs)
+            visists=Visit.objects.filter(pdv__in=pdvs)
+            sheduled_visits=len(visists.filter(status='scheduled'))
+            total_visits=len(pdvs)
+            zone['couverture']=round(sheduled_visits/total_visits*100,2)
+        return Response({'zones': zones}, status=status.HTTP_200_OK)
 
         
 
