@@ -32,13 +32,13 @@ def CommerciauxActifs(request):
 
             actifs_current = commerciaux.filter(
                 id__in=Visit.objects.filter(
-                    visit_time__year=current_year, visit_time__month=current_month
+                    visit_time__year=current_year, visit_time__month=current_month, status="finished"
                 ).values_list('agent', flat=True)
             ).count()
 
             actifs_last = commerciaux.filter(
                 id__in=Visit.objects.filter(
-                    visit_time__year=last_year, visit_time__month=last_month
+                    visit_time__year=last_year, visit_time__month=last_month, status="finished"
                 ).values_list('agent', flat=True)
             ).count()
 
