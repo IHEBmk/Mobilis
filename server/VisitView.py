@@ -159,13 +159,18 @@ class VisitPdv(APIView):
     
     
 class MakePlanning(APIView):
-    authentication_classes = [CustomJWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    # authentication_classes = [CustomJWTAuthentication]
+    # permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        
         data = request.data
-        user = request.user
+        # user = request.user
         speed_kmph = float(data.get('speed_kmph', 60))
+        id=data.get('id')
+        if not id:
+            return Response({'error': 'id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        user = User.objects.get(id=id)
         
         remake = data.get('remake')
         cvi_id = data.get('cvi')
