@@ -27,60 +27,120 @@ class GenerateZones(APIView):
         wilaya_id = request.data.get('wilaya_id')
         number_of_zones = int(request.data.get('number_of_zones'))
         csv_file = request.FILES.get('csv_file')
-        lat_col = request.data.get('lat_col')
-        lon_col = request.data.get('lon_col')
-        balance_type = request.data.get('balance_type')
-        
+        lat_col = request.data.get('lat_col', 'Latitude')
+        lon_col = request.data.get('lon_col', 'Longitude')
+        balance_type = request.data.get('balance_type', 'balanced')
+
         # Validate required parameters
         if not csv_file:
             return Response({'error': 'CSV file is required'}, status=status.HTTP_400_BAD_REQUEST)
             
-        if not id:
-            return Response({'error': 'User ID is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # try:
-        #     user = User.objects.get(id=id)
-        # except User.DoesNotExist:
-        #     return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
-        
         if user.role == 'admin':
-                wilaya_id = request.data.get('wilaya_id')
-                if not wilaya_id:
-                    return Response({'error': 'Wilaya ID is required for admin users'}, status=status.HTTP_400_BAD_REQUEST)
+            if not wilaya_id:
+                return Response({'error': 'Wilaya ID is required for admin users'}, status=status.HTTP_400_BAD_REQUEST)
         elif user.role == 'manager':
-                if not user.wilaya:
-                    return Response({'error': 'Manager does not have an assigned wilaya'}, status=status.HTTP_400_BAD_REQUEST)
-                wilaya_id = str(user.wilaya.id)
+            if not user.wilaya:
+                return Response({'error': 'Manager does not have an assigned wilaya'}, status=status.HTTP_400_BAD_REQUEST)
+            wilaya_id = str(user.wilaya.id)
         else:
-                return Response({'error': 'You do not have permission to generate zones'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'error': 'You do not have permission to generate zones'}, status=status.HTTP_403_FORBIDDEN)
         
-        # Get the wilaya
+        # Get the wilaya and communes in a single database interaction
         try:
-            wilaya = Wilaya.objects.get(id=wilaya_id)
+            wilaya = Wilaya.objects.select_related().get(id=wilaya_id)
+            # Fetch all communes in a single query and store in memory
+            communes = list(Commune.objects.filter(wilaya=wilaya_id).values())
+            commune_ids = [commune['id'] for commune in communes]
+            
+            # Create a lookup dictionary for communes by name
+            commune_lookup = {commune['name']: commune['id'] for commune in communes}
         except Wilaya.DoesNotExist:
             return Response({'error': 'Wilaya not found'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # # Check if zones are already generated
-        # if wilaya.geojson is not None:
-        #     return Response({'error': 'Zones already generated'}, status=status.HTTP_400_BAD_REQUEST)
+        # Delete existing zones - optimize with prefetch and bulk operations
+        # First get the zones to delete in a single query
+        existing_zones_query = Zone.objects.filter(pointofsale__commune__in=commune_ids).distinct()
+        zones_count = existing_zones_query.count()
         
-        # Get the communes for this wilaya
-        communes = list(Commune.objects.filter(wilaya=wilaya_id).values())
-        commune_ids = [commune['id'] for commune in communes]
+        if zones_count > 0:
+            # Update all points of sale in these zones to have zone=None in a single bulk update
+            zone_ids = list(existing_zones_query.values_list('id', flat=True))
+            PointOfSale.objects.filter(zone__in=zone_ids).update(zone=None)
+            
+            # Now delete the zones in a single operation
+            deletion_count = existing_zones_query.delete()[0]
+            print(f"Deleted {deletion_count} existing zones in wilaya {wilaya.name}")
         
-        # Get points of sale in this wilaya
-        pdvs_to_zone = list(PointOfSale.objects.filter(commune__in=commune_ids).values())
+        # Load data from CSV
+        df = load_data(csv_file, lat_col, lon_col)
         
+        # Assign communes using GeoJSON if needed
+        if not ('Commune' in df.columns and df['Commune'].notna().all()):
+            df = assign_communes_from_geojson(df, 
+                "https://qlluxlhcvjnlicxzxwry.supabase.co/storage/v1/object/sign/communes/geoBoundaries-DZA-ADM3.geojson?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJjb21tdW5lcy9nZW9Cb3VuZGFyaWVzLURaQS1BRE0zLmdlb2pzb24iLCJpYXQiOjE3NDQ0NzYzOTMsImV4cCI6MzMyODA0NzYzOTN9.zEbNpeH6f2gp-n3Jrue20cC3cHAq4wZ00Duy6IeEsGs", 
+                lat_col, lon_col)
+        
+        # Optimize point creation - check all existing points in a single query
+        errors = []
+        created_points = 0
+        
+        # Get all existing points coordinates in a single query to avoid repeated lookups
+        existing_points = set(PointOfSale.objects.filter(
+            commune__in=commune_ids
+        ).values_list('latitude', 'longitude'))
+        
+        # Prepare bulk creation lists
+        points_to_create = []
+        
+        for _, row in df.iterrows():
+            try:
+                lat, lon = row[lat_col], row[lon_col]
+                
+                # Check if point already exists using our in-memory set
+                if (lat, lon) not in existing_points:
+                    # Find the commune for this point
+                    commune_name = row.get('Commune')
+                    commune_id = None
+                    if commune_name and commune_name in commune_lookup:
+                        commune_id = commune_lookup[commune_name]
+                    
+                    # Prepare point of sale object for bulk creation
+                    points_to_create.append(
+                        PointOfSale(
+                            id=uuid.uuid4(),
+                            latitude=lat,
+                            longitude=lon,
+                            zone=None,  # Will be set during zoning
+                            commune_id=commune_id,  # Use the ID directly to avoid extra query
+                            name=f"PDV_{lat}_{lon}",  # Generate a default name
+                            created_at=datetime.now(timezone.utc),  # Use timezone-aware datetime
+                            status=1,  # Default status (active)
+                        )
+                    )
+            except Exception as e:
+                errors.append({
+                    'type': 'pdv_creation_error',
+                    'latitude': row[lat_col],
+                    'longitude': row[lon_col],
+                    'error': str(e)
+                })
+        
+        # Bulk create all new points in a single database operation
+        if points_to_create:
+            created_points = len(points_to_create)
+            PointOfSale.objects.bulk_create(points_to_create)
+        
+        # Get all points of sale in this wilaya for zoning - include coordinates in values to avoid lookups later
+        pdvs_to_zone = list(PointOfSale.objects.filter(commune__in=commune_ids).values(
+            'id', 'latitude', 'longitude', 'commune_id'
+        ))
         if not pdvs_to_zone:
-            return Response({'error': 'No points of sale found for this wilaya'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'No points of sale found for this wilaya after importing'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create a lookup for PDVs by coordinates for faster access later
+        pdv_lookup = {(pdv['latitude'], pdv['longitude']): pdv['id'] for pdv in pdvs_to_zone if pdv['latitude'] and pdv['longitude']}
         
         # Set balance coefficients based on balance_type
-        if not lat_col:
-            lat_col = 'Latitude'
-        if not lon_col:
-            lon_col = 'Longitude'
-        if not balance_type:
-            balance_type = 'balanced'
         if balance_type == "points":
             points_coef = 10
             distance_coef = 0.1
@@ -90,45 +150,36 @@ class GenerateZones(APIView):
         else:
             points_coef = 1
             distance_coef = 1
-        
-        # Load data from CSV and assign communes using GeoJSON if needed
-        df = load_data(csv_file, lat_col, lon_col)
-        
-        # Assign communes using GeoJSON if needed
-        if not ('Commune' in df.columns and df['Commune'].notna().all()):
-            df = assign_communes_from_geojson(df, 
-                "https://qlluxlhcvjnlicxzxwry.supabase.co/storage/v1/object/sign/communes/geoBoundaries-DZA-ADM3.geojson?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJjb21tdW5lcy9nZW9Cb3VuZGFyaWVzLURaQS1BRE0zLmdlb2pzb24iLCJpYXQiOjE3NDQ0NzYzOTMsImV4cCI6MzMyODA0NzYzOTN9.zEbNpeH6f2gp-n3Jrue20cC3cHAq4wZ00Duy6IeEsGs", 
-                lat_col, lon_col)
-        
+
         # Create balanced zones
-        df,zones, zone_workloads, zone_communes = create_balanced_zones(
+        df, zones, zone_workloads, zone_communes = create_balanced_zones(
             df, number_of_zones, lat_col, lon_col, 
             points_coef=points_coef, distance_coef=distance_coef
         )
-        
+
         # Generate zone boundaries
         zone_polygons = generate_zone_boundaries(zones)
-        
-        # Get available managers for assignment
-        available_managers = User.objects.filter(role='manager', wilaya=wilaya_id)
-        manager_count = available_managers.count()
+
+        # Get available managers for assignment - do this in a single query
+        available_managers = list(User.objects.filter(role='manager', wilaya=wilaya_id))
+        manager_count = len(available_managers)
         
         if manager_count < number_of_zones:
             # Not enough managers, we'll reuse some
-            managers_list = list(available_managers)
-            manager_assignments = random.choices(managers_list, k=number_of_zones)
+            manager_assignments = random.choices(available_managers, k=number_of_zones)
         else:
             # We have enough managers, randomly select without replacement
-            managers_list = list(available_managers)
-            manager_assignments = random.sample(managers_list, number_of_zones)
+            manager_assignments = random.sample(available_managers, number_of_zones)
         
         # Map zone_id to manager
         zone_managers = dict(zip([str(i) for i in zones.keys()], manager_assignments))
         
-        errors = []
+        # Create zones in the database with bulk operations
         created_zones = {}
+        zones_to_create = []
+        pdv_zone_updates = []
         
-        # Create zones and assign managers
+        # Prepare zone creation data
         for zone_id, zone_df in zones.items():
             try:
                 zone_id_str = str(zone_id)
@@ -137,53 +188,62 @@ class GenerateZones(APIView):
                 # Format zone name
                 name = f"{wilaya.name}_{zone_id}"
                 
-                # Create new zone
+                # Create zone object
                 zone_uuid = uuid.uuid4()
-                created_at = datetime.now()
+                created_at = datetime.now(timezone.utc)  # Use timezone-aware datetime
                 
-                new_zone_dict = {
-                    'id': zone_uuid,
-                    'created_at': created_at,
-                    'commune': None,  # Will be updated later if needed
-                    'name': name,
-                    'manager': manager.id if manager else None
-                }
+                # Create zone object for bulk creation
+                new_zone = Zone(
+                    id=zone_uuid,
+                    created_at=created_at,
+                    commune=None,
+                    name=name,
+                    manager_id=manager.id if manager else None
+                )
                 
-                new_zone = ZoneSerializer(data=new_zone_dict)
-                if new_zone.is_valid():
-                    zone = new_zone.save()
-                    created_zones[zone_id] = zone
-                else:
-                    errors.append({'zone_id': zone_id, 'errors': new_zone.errors})
-                    continue
-                
-                # Update all PDVs in this zone with the zone_id
+                zones_to_create.append(new_zone)
+                created_zones[zone_id] = new_zone
+                # Collect PDV updates for this zone
                 for _, row in zone_df.iterrows():
-                    try:
-                        # Find matching PDV by coordinates
-                        pdv = PointOfSale.objects.filter(
-                            latitude=row[lat_col],
-                            longitude=row[lon_col]
-                        ).first()
-                        
-                        if pdv:
-                            pdv.zone = zone
-                            pdv.save()
-                    except Exception as e:
+                    lat, lon = row[lat_col], row[lon_col]
+                    # Look up using the tuple key properly
+                    pdv_id = pdv_lookup.get((lat, lon))
+                    
+                    if pdv_id:
+                        # Add to our list of updates
+                        pdv_zone_updates.append((pdv_id, zone_uuid))
+                    else:
                         errors.append({
                             'type': 'pdv_update_error',
                             'zone_id': zone_id,
-                            'latitude': row[lat_col],
-                            'longitude': row[lon_col],
-                            'error': str(e)
+                            'latitude': lat,
+                            'longitude': lon,
+                            'error': 'PDV not found at coordinates'
                         })
-                
+                        
             except Exception as e:
                 errors.append({
                     'type': 'zone_creation_error',
                     'zone_id': zone_id,
                     'error': str(e)
                 })
+        
+        # Bulk create all zones in a single database operation
+        Zone.objects.bulk_create(zones_to_create)
+        
+        # Update PDVs with zones using Django's bulk_update
+        if pdv_zone_updates:
+            # Get all the PDVs that need updating in a single query
+            pdv_ids = [pdv_id for pdv_id, _ in pdv_zone_updates]
+            pdvs_to_update = {pdv.id: pdv for pdv in PointOfSale.objects.filter(id__in=pdv_ids)}
+            
+            # Set the zone for each PDV
+            for pdv_id, zone_id in pdv_zone_updates:
+                if pdv_id in pdvs_to_update:
+                    pdvs_to_update[pdv_id].zone_id = zone_id
+            
+            # Perform bulk update
+            PointOfSale.objects.bulk_update(pdvs_to_update.values(), ['zone_id'])
         
         # Export zones to GeoJSON and update wilaya
         try:
@@ -194,7 +254,7 @@ class GenerateZones(APIView):
                 commune_geojson="https://qlluxlhcvjnlicxzxwry.supabase.co/storage/v1/object/sign/communes/geoBoundaries-DZA-ADM3.geojson?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJjb21tdW5lcy9nZW9Cb3VuZGFyaWVzLURaQS1BRE0zLmdlb2pzb24iLCJpYXQiOjE3NDQ0NzYzOTMsImV4cCI6MzMyODA0NzYzOTN9.zEbNpeH6f2gp-n3Jrue20cC3cHAq4wZ00Duy6IeEsGs"
             )
             
-            # Convert the dict to a JSON string and save it to the wilaya object
+            # Update wilaya with GeoJSON data
             if isinstance(geojson_data, dict):
                 wilaya.geojson = json.dumps(geojson_data)
                 wilaya.save()
@@ -212,12 +272,11 @@ class GenerateZones(APIView):
         
         response_data = {
             'success': True,
+            'points_created': created_points,
             'zones_created': len(created_zones),
+            'zones_deleted': zones_count,
             'errors': errors if errors else None
         }
-        
-        if errors:
-            response_data['warning'] = f"Completed with {len(errors)} errors"
         
         return Response(response_data, status=status.HTTP_200_OK)
         
