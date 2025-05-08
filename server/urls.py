@@ -22,7 +22,7 @@ from server.CoordinatesView import GetCoordinates, RefreshCoordinates
 from server.PerformanceView import getGlobalPerformancePDV, getVisitPerformance
 from server.UserViews import AssignZoneView, GenerateAgents, GenerateManager, GenerateWilayaManagers, GenerateWilayasManagers, GetUsers, LoginView, SignupView
 from server.CommuneView import Commune_to_supabase, GetCommunes
-from server.PdvViews import DeletePdv, GetPdv, Pdv_To_supabase, UpdateStatusPdv
+from server.PdvViews import DeletePdv,GetOnePdv, GetPdv, Pdv_To_supabase, UpdateStatusPdv
 from server.VisitView import ClancelVisit, GetVisitsPlan, MakePlanning, ValidatePlanning, VisitPdv
 from server.WilayaView import GetGeojson, GetWilayas, Wilaya_to_supabase
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -67,6 +67,7 @@ urlpatterns = [
     path('GenerateWilayaManagers/', GenerateWilayaManagers.as_view(), name='GenerateWilayaManagers'),
     path('GenerateManager/', GenerateManager.as_view(), name='GenerateManager'),
     path('GenerateAgents/', GenerateAgents.as_view(), name='GenerateAgents'),
+    path('GetOnePdv/', GetOnePdv.as_view(), name='GetOnePdv'),
     path('GetUsers/', GetUsers.as_view(), name='GetUsers'),
     path('GetGeojson/', GetGeojson.as_view(), name='GetUsers'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
