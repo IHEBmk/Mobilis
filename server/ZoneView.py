@@ -52,14 +52,15 @@ class GenerateZones(APIView):
             communes = list(Commune.objects.filter(wilaya=wilaya_id).values())
             commune_ids = [commune['id'] for commune in communes]
             
-            # Create a lookup dictionary for communes by name
-            commune_lookup = {commune['name']: commune['id'] for commune in communes}
+            # Create a lookup dictionary for communes by name - normalize names for case-insensitive comparison
+            commune_lookup = {commune['name'].lower().strip(): commune['id'] for commune in communes}
+            print(f"Available communes in wilaya {wilaya.name}: {list(commune_lookup.keys())}")
         except Wilaya.DoesNotExist:
             return Response({'error': 'Wilaya not found'}, status=status.HTTP_400_BAD_REQUEST)
         
         # Delete existing zones - optimize with prefetch and bulk operations
         # First get the zones to delete in a single query
-        existing_zones_query = Zone.objects.filter(pointofsale__commune__in=commune_ids).distinct()
+        existing_zones_query = Zone.objects.filter(manager__wilaya_id=wilaya_id).distinct()
         zones_count = existing_zones_query.count()
         
         if zones_count > 0:
@@ -73,12 +74,17 @@ class GenerateZones(APIView):
         
         # Load data from CSV
         df = load_data(csv_file, lat_col, lon_col)
+        print(f"Loaded {len(df)} rows from CSV. Columns: {df.columns.tolist()}")
         
         # Assign communes using GeoJSON if needed
         if not ('Commune' in df.columns and df['Commune'].notna().all()):
+            print(f"Assigning communes from GeoJSON as 'Commune' column is missing or has NULL values")
             df = assign_communes_from_geojson(df, 
                 "https://qlluxlhcvjnlicxzxwry.supabase.co/storage/v1/object/sign/communes/geoBoundaries-DZA-ADM3.geojson?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJjb21tdW5lcy9nZW9Cb3VuZGFyaWVzLURaQS1BRE0zLmdlb2pzb24iLCJpYXQiOjE3NDQ0NzYzOTMsImV4cCI6MzMyODA0NzYzOTN9.zEbNpeH6f2gp-n3Jrue20cC3cHAq4wZ00Duy6IeEsGs", 
                 lat_col, lon_col)
+            print(f"After GeoJSON assignment, commune distribution: {df['Commune'].value_counts().to_dict()}")
+        else:
+            print(f"Using provided communes. Commune distribution: {df['Commune'].value_counts().to_dict()}")
         
         # Optimize point creation - check all existing points in a single query
         errors = []
@@ -88,27 +94,54 @@ class GenerateZones(APIView):
         existing_points = set(PointOfSale.objects.filter(
             commune__in=commune_ids
         ).values_list('latitude', 'longitude'))
+        print(f"Found {len(existing_points)} existing points of sale in this wilaya")
+        
+        manager = user if user.role == 'manager' else None
+        
+        # Map commune names to IDs, handling potential case/spacing differences
+        def get_commune_id(commune_name):
+            if not commune_name:
+                return None
+            normalized_name = commune_name.lower().strip()
+            return commune_lookup.get(normalized_name)
+        
+        # Check if there are any communes in the CSV that don't match our lookup
+        unmapped_communes = set()
+        for commune_name in df['Commune'].unique():
+            if commune_name and get_commune_id(commune_name) is None:
+                unmapped_communes.add(commune_name)
+        
+        if unmapped_communes:
+            print(f"WARNING: {len(unmapped_communes)} commune names in CSV don't match database: {unmapped_communes}")
         
         # Prepare bulk creation lists
         points_to_create = []
-        
         for _, row in df.iterrows():
             try:
-                lat, lon = row[lat_col], row[lon_col]
+                lat, lon = float(row[lat_col]), float(row[lon_col])
                 
                 # Check if point already exists using our in-memory set
                 if (lat, lon) not in existing_points:
                     # Find the commune for this point
                     commune_name = row.get('Commune')
-                    commune_id = None
-                    if commune_name and commune_name in commune_lookup:
-                        commune_id = commune_lookup[commune_name]
+                    commune_id = get_commune_id(commune_name)
+                    
+                    # Record if we couldn't map this commune
+                    if commune_name and not commune_id:
+                        errors.append({
+                            'type': 'commune_mapping_error',
+                            'commune': commune_name,
+                            'latitude': lat,
+                            'longitude': lon,
+                            'error': f"Commune '{commune_name}' not found in wilaya {wilaya.name}"
+                        })
                     
                     # Prepare point of sale object for bulk creation
                     points_to_create.append(
                         PointOfSale(
                             id=uuid.uuid4(),
                             latitude=lat,
+                            manager=manager if manager else None,
                             longitude=lon,
                             zone=None,  # Will be set during zoning
                             commune_id=commune_id,  # Use the ID directly to avoid extra query
@@ -128,14 +161,40 @@ class GenerateZones(APIView):
         # Bulk create all new points in a single database operation
         if points_to_create:
             created_points = len(points_to_create)
+            print(f"Creating {created_points} new points of sale")
             PointOfSale.objects.bulk_create(points_to_create)
+            print(f"Successfully created {created_points} points of sale")
+        else:
+            print("No new points to create")
+        
+        # If no points were created but some were mapped to invalid communes, provide a better error
+        if created_points == 0 and any(e['type'] == 'commune_mapping_error' for e in errors):
+            return Response({
+                'error': 'No points of sale could be created because the communes in the CSV do not match the communes in the selected wilaya',
+                'details': {
+                    'unmapped_communes': list(unmapped_communes),
+                    'available_communes': list(commune_lookup.keys())
+                },
+                'errors': errors
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         # Get all points of sale in this wilaya for zoning - include coordinates in values to avoid lookups later
         pdvs_to_zone = list(PointOfSale.objects.filter(commune__in=commune_ids).values(
             'id', 'latitude', 'longitude', 'commune_id'
         ))
+        print(f"Found {len(pdvs_to_zone)} points of sale to zone")
+        
         if not pdvs_to_zone:
-            return Response({'error': 'No points of sale found for this wilaya after importing'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'error': 'No points of sale found for this wilaya after importing',
+                'details': {
+                    'created_points': created_points,
+                    'wilaya_id': wilaya_id,
+                    'commune_count': len(communes),
+                    'commune_ids': commune_ids
+                },
+                'errors': errors
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         # Create a lookup for PDVs by coordinates for faster access later
         pdv_lookup = {(pdv['latitude'], pdv['longitude']): pdv['id'] for pdv in pdvs_to_zone if pdv['latitude'] and pdv['longitude']}
@@ -150,18 +209,35 @@ class GenerateZones(APIView):
         else:
             points_coef = 1
             distance_coef = 1
-
-        # Create balanced zones
+        
+        # Prepare data for zoning algorithm
+        zoning_df = pd.DataFrame({
+            'Latitude': [float(pdv['latitude']) for pdv in pdvs_to_zone],
+            'Longitude': [float(pdv['longitude']) for pdv in pdvs_to_zone]
+        })
+        
+        if 'Commune' in df.columns:
+            # Try to map commune IDs back to names for zoning
+            commune_id_to_name = {commune['id']: commune['name'] for commune in communes}
+            commune_names = []
+            for pdv in pdvs_to_zone:
+                commune_id = pdv.get('commune_id')
+                commune_names.append(commune_id_to_name.get(commune_id, 'Unknown'))
+            zoning_df['Commune'] = commune_names
+        
+        print(f"Starting zone creation with {len(zoning_df)} points")
         df, zones, zone_workloads, zone_communes = create_balanced_zones(
-            df, number_of_zones, lat_col, lon_col, 
+            zoning_df, number_of_zones, lat_col, lon_col, 
             points_coef=points_coef, distance_coef=distance_coef
         )
+        print(f"Created {len(zones)} zones")
 
         # Generate zone boundaries
         zone_polygons = generate_zone_boundaries(zones)
 
         # Get available managers for assignment - do this in a single query
-        available_managers = list(User.objects.filter(role='manager', wilaya=wilaya_id))
+        available_managers = list(User.objects.filter(role='agent', wilaya=wilaya_id))
+        print(f'Found {len(available_managers)} available managers')
         manager_count = len(available_managers)
         
         if manager_count < number_of_zones:
@@ -230,6 +306,7 @@ class GenerateZones(APIView):
         
         # Bulk create all zones in a single database operation
         Zone.objects.bulk_create(zones_to_create)
+        print(f"Created {len(zones_to_create)} zones in database")
         
         # Update PDVs with zones using Django's bulk_update
         if pdv_zone_updates:
@@ -244,6 +321,7 @@ class GenerateZones(APIView):
             
             # Perform bulk update
             PointOfSale.objects.bulk_update(pdvs_to_update.values(), ['zone_id'])
+            print(f"Updated {len(pdvs_to_update)} points of sale with zone assignments")
         
         # Export zones to GeoJSON and update wilaya
         try:
