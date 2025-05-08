@@ -27,7 +27,7 @@ from server.VisitView import ClancelVisit, GetVisitsPlan, MakePlanning, Validate
 from server.WilayaView import GetGeojson, GetWilayas, Wilaya_to_supabase
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from server.ZoneView import GenerateZones
+from server.ZoneView import GenerateZones,GetZones
 from server.dashboardViews import AgentCoordinatesAPIView, AverageVisitDuration, CommerciauxActifs, DashboardStats, LastWeekVisits, VisitedPDVPercentage, VisitsRealizedVsGoal, ZoneStatsAPIView, pdvVisited
 
 
@@ -73,4 +73,5 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('AddAgence/', AddAgence.as_view(), name='AddAgence'),
     path('GenerateZones/', GenerateZones.as_view(), name='GenerateZones'),
+    path('GetZones/', GetZones.as_view(), name='GetZones'),
 ]
