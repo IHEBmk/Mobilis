@@ -7,6 +7,7 @@ from server.authentication import CustomJWTAuthentication
 from server.models import Commune, PointOfSale, User, Wilaya, Zone
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
+from django.forms import model_to_dict
 
 class Pdv_To_supabase(APIView):
     authentication_classes = [CustomJWTAuthentication]
@@ -249,7 +250,31 @@ class UpdateStatusPdv(APIView):
             
 
     
-
+class GetOnePdv(APIView):
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        data=request.data
+        pdv=data.get('pdv')
+        if not pdv:
+            return Response({'error': 'missing pdv'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user=request.user
+            if not user:
+                return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
+            pdv=PointOfSale.objects.get(id=data.get('pdv'))
+        except User.DoesNotExist or PointOfSale.DoesNotExist or Commune.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
+        commune=Commune.objects.get(id=pdv.commune)
+        if user.role=='manager':
+            wilaya=Wilaya.objects.get(id=commune.wilaya)
+            if user.wilaya!=wilaya:
+                return Response({'error':'you can\'t update this pdv'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'pdv':model_to_dict(pdv)}, status=status.HTTP_200_OK)
+        elif user.role=='admin':
+            return Response({'pdv':model_to_dict(pdv)}, status=status.HTTP_200_OK)
+        else:
+            return Response({'error':'you can\'t update this pdv, unauthorized'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
