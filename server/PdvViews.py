@@ -253,7 +253,7 @@ class UpdateStatusPdv(APIView):
 class GetOnePdv(APIView):
     authentication_classes = [CustomJWTAuthentication]
     permission_classes = [IsAuthenticated]
-    def get(self, request):
+    def post(self, request):
         data=request.data
         pdv=data.get('pdv')
         if not pdv:
