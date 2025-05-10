@@ -1,6 +1,7 @@
 import base64
 from collections import defaultdict
 from datetime import datetime, timedelta
+import json
 from django.utils import timezone
 import uuid
 from django.forms import model_to_dict
@@ -9,13 +10,10 @@ from rest_framework.response import Response
 from rest_framework import status
 import numpy as np
 import pandas as pd
-from server.Visit_paling_model import plan_multiple_days
+from server.Visit_paling_model import calculate_statistics, plan_multiple_days_no_return
 from server.authentication import CustomJWTAuthentication
 from server.models import  PointOfSale, User, Visit
 from rest_framework.permissions import IsAuthenticated
-
-
-
 from datetime import datetime, timedelta
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -32,12 +30,12 @@ class GetVisits(APIView):
         if not user:
             return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
         if user.role=='admin':
-            visits=Visit.objects.all()
+            visits=Visit.objects.filter(validated=1)
         elif user.role=='manager':
             supervised_agents=User.objects.filter(manager=user.id).values()
-            visits=Visit.objects.filter(agent__in=supervised_agents)
+            visits=Visit.objects.filter(agent__in=supervised_agents,validated=1)
         elif user.role=='agent':
-            visits=Visit.objects.filter(agent=user.id,status='pending')
+            visits=Visit.objects.filter(agent=user.id,status='pending',validated=1)
         else:
             return Response({'error': 'you can\'t retrieve visits'}, status=status.HTTP_401_UNAUTHORIZED)
         visits_list=[]
@@ -118,12 +116,12 @@ class VisitPdv(APIView):
                     visit.delete()
                 deadline=user.deadline
                 future_start = now + timedelta(days=1)
-                number_of_days = (deadline - future_start).days
+                number_of_days = count_valid_days(future_start.date(), deadline.date())
                 daily_limit_minutes = 7 * 60
                 total_time_minutes = number_of_days * daily_limit_minutes
                 # Assuming you are planning again with all PDVs managed by user
                 data_points = list(PointOfSale.objects.filter(manager=user,id__in=points).values())
-                routes, edges, estimates = plan_multiple_days([start_point] + data_points, daily_limit_minutes, speed_kmph)
+                routes, edges, estimates = plan_multiple_days_no_return([start_point] + data_points, daily_limit_minutes, speed_kmph)
                 new_visits = []
                 for day_index, route in enumerate(routes):
                     for order, point_name in enumerate(route[1:], start=1):  # skip start point
@@ -156,22 +154,23 @@ class VisitPdv(APIView):
     
     
     
-    
+def count_valid_days(start_date, end_date):
+    count = 0
+    current_date = start_date
+    while current_date <= end_date:
+        if current_date.weekday() not in (4, 5):  # Skip Friday (4) and Saturday (5)
+            count += 1
+        current_date += timedelta(days=1)
+    return count
     
 class MakePlanning(APIView):
-    # authentication_classes = [CustomJWTAuthentication]
-    # permission_classes = [IsAuthenticated]
-
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
     def post(self, request):
         
         data = request.data
-        # user = request.user
+        user = request.user
         speed_kmph = float(data.get('speed_kmph', 60))
-        id=data.get('id')
-        if not id:
-            return Response({'error': 'id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        user = User.objects.get(id=id)
-        
         remake = data.get('remake')
         cvi_id = data.get('cvi')
         deadline_str = data.get('deadline')
@@ -197,7 +196,6 @@ class MakePlanning(APIView):
         except User.DoesNotExist:
             return Response({'error': 'CVI not found'}, status=status.HTTP_404_NOT_FOUND)
         if cvi.manager != user:
-            
             return Response({'error': 'You are not authorized to make planning','id':user.id}, status=status.HTTP_403_FORBIDDEN)
         if remake:
             Visit.objects.filter(agent=cvi, validated=0).delete()
@@ -206,7 +204,7 @@ class MakePlanning(APIView):
         if not cvi.agence:
             return Response({'error': 'CVI has no agence assigned'}, status=status.HTTP_400_BAD_REQUEST)
 
-        number_of_days = (deadline.date() - now.date()).days
+        number_of_days = count_valid_days(now.date(), deadline.date())
         daily_limit_minutes = 7 * 60
         total_time_minutes = number_of_days * daily_limit_minutes
         longitude = cvi.agence.longitude if not None else 31.610709890371677
@@ -217,20 +215,21 @@ class MakePlanning(APIView):
             'latitude':latitude
         }
 
-        data_points = list(PointOfSale.objects.filter(manager=cvi).values())
-        routes, edges, estimates = plan_multiple_days(
+        data_points = list(PointOfSale.objects.filter(manager=cvi).values('id', 'name', 'longitude', 'latitude'))
+        routes, edges, estimates = plan_multiple_days_no_return(
             [start_point] + data_points,
             daily_limit_minutes,
             speed_kmph
         )
-        estimated_days=len(routes)
+        
+        stats = calculate_statistics(routes, estimates, [start_point] + data_points)
+        estimated_days=stats['total_days']
         warning = None
         if estimated_days>number_of_days:
             warning = "The CVI won't be able to visit all the points"
             suggestion='Increase the deadline'
             return Response({
             'message': 'Visits could not be scheduled',
-            'visits_number': len(visits),
             'number_of_days': number_of_days,
             'estimated_days':estimated_days,
             'number_of_points':len(data_points),
@@ -239,7 +238,9 @@ class MakePlanning(APIView):
         }, status=status.HTTP_400_BAD_REQUEST)
         visits = []
         for day_index, route in enumerate(routes):
-            for order_index, point_name in enumerate(route[1:], start=1):  # skip 'Start'
+            for order_index, point_name in enumerate(route):
+                if point_name=="Start":
+                    continue# skip 'Start'
                 pos = next((p for p in data_points if p['name'] == point_name), None)
                 if pos:
                     visits.append(Visit(
@@ -257,11 +258,9 @@ class MakePlanning(APIView):
         cvi.save()
         return Response({
             'message': 'Visits scheduled successfully',
-            'visits_number': len(visits),
-            'number_of_days': number_of_days,
-            'number_of_points':len(data_points),
+            'stats': stats,
+            'number_of_points': len(data_points),
             'visits':routes,
-            
             'warning': warning
         }, status=status.HTTP_201_CREATED)
 
@@ -387,7 +386,7 @@ class ClancelVisit(APIView):
         number_of_days=(deadline-now).days
         daily_limit_minutes=7*60
         total_time_minutes=number_of_days*daily_limit_minutes
-        routes,edges,estimates=plan_multiple_days([start_point]+data_points,total_time_minutes,daily_limit_minutes,60)
+        routes,edges,estimates=plan_multiple_days_no_return([start_point]+data_points,total_time_minutes,daily_limit_minutes,60)
         visits = []
         for day_index, route in enumerate(routes):
             for order_index, point_name in enumerate(route[1:], start=1):  # skip 'Start'
