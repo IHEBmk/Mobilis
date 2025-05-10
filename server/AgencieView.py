@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from rest_framework import status
 import numpy as np
 import pandas as pd
-from server.Visit_paling_model import plan_multiple_days
 from server.authentication import CustomJWTAuthentication
 from server.models import  Agence, PointOfSale, User, Visit, Wilaya
 from rest_framework.permissions import IsAuthenticated
@@ -103,3 +102,4 @@ class AddAgence(APIView):
         return Response({'message': 'Agence added successfully'}, status=status.HTTP_201_CREATED)
     
     
+
