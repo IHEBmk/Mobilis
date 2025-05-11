@@ -65,14 +65,13 @@ def pdvVisited(request):
         user = request.user
         try:
             user_profile = User.objects.get(id=user.id)
-            if user_profile.role == 'admin':
-                now = timezone.now()
-                current_year, current_month = now.year, now.month
+            now = timezone.now()
+            current_year, current_month = now.year, now.month
 
-                if current_month == 1:
-                    last_year, last_month = current_year - 1, 12
-                else:
-                    last_year, last_month = current_year, current_month - 1
+            if current_month == 1:
+                last_year, last_month = current_year - 1, 12
+            else:
+                last_year, last_month = current_year, current_month - 1
             if user_profile.role == 'admin':
                 total_pdv = PointOfSale.objects.count()
                 users=User.objects.filter(role='agent')
