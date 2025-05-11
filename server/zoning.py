@@ -242,7 +242,10 @@ def find_intermediate_points(pt1, pt2, all_points_dict, max_search_distance=None
     # Creating vectors for line equation
     v_line = (lat2 - lat1, lon2 - lon1)
     line_length = np.sqrt(v_line[0]**2 + v_line[1]**2)
-    v_unit = (v_line[0]/line_length, v_line[1]/line_length)
+    if line_length == 0:
+        return 0
+    else:
+        v_unit = (v_line[0]/line_length, v_line[1]/line_length)
     
     intermediate_count = 0
     
