@@ -177,7 +177,7 @@ class MakePlanning(APIView):
 
         if not user:
             return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
-        if user.role != 'manager':
+        if user.role != 'manager' and user.role != 'admin':
             return Response({'error': 'You can\'t make planning'}, status=status.HTTP_400_BAD_REQUEST)
         if not deadline_str or not cvi_id:
             return Response({'error': 'Deadline and CVI are required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -195,7 +195,7 @@ class MakePlanning(APIView):
             cvi = User.objects.get(id=cvi_id)
         except User.DoesNotExist:
             return Response({'error': 'CVI not found'}, status=status.HTTP_404_NOT_FOUND)
-        if cvi.manager != user:
+        if cvi.manager != user and user.role != 'admin':
             return Response({'error': 'You are not authorized to make planning','id':user.id}, status=status.HTTP_403_FORBIDDEN)
         if remake:
             Visit.objects.filter(agent=cvi, validated=0).delete()
