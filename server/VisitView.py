@@ -178,7 +178,7 @@ class MakePlanning(APIView):
         if not user:
             return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
         if user.role != 'manager' and user.role != 'admin':
-            return Response({'error': 'You can\'t make planning'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'You can\'t make planning your are an agent'}, status=status.HTTP_400_BAD_REQUEST)
         if not deadline_str or not cvi_id:
             return Response({'error': 'Deadline and CVI are required'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -196,7 +196,7 @@ class MakePlanning(APIView):
         except User.DoesNotExist:
             return Response({'error': 'CVI not found'}, status=status.HTTP_404_NOT_FOUND)
         if cvi.manager != user and user.role != 'admin':
-            return Response({'error': 'You are not authorized to make planning','id':user.id}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'error': 'You are not authorized to make planning'}, status=status.HTTP_403_FORBIDDEN)
         if remake:
             Visit.objects.filter(agent=cvi, validated=0).delete()
 
@@ -240,6 +240,7 @@ class MakePlanning(APIView):
         for day_index, route in enumerate(routes):
             for order_index, point_name in enumerate(route):
                 if point_name=="Start":
+                    route[0]=cvi.agence.name if cvi.agence else 'Agence'
                     continue# skip 'Start'
                 pos = next((p for p in data_points if p['name'] == point_name), None)
                 if pos:
