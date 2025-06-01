@@ -23,7 +23,7 @@ from server.PerformanceView import getGlobalPerformancePDV, getVisitPerformance
 from server.UserViews import AssignZoneView, GenerateAgents, GenerateManager, GenerateWilayaManagers, GenerateWilayasManagers, GetUsers, LoginView, SignupView
 from server.CommuneView import Commune_to_supabase, GetCommunes
 from server.PdvViews import DeletePdv,GetOnePdv, GetPdv, Pdv_To_supabase, UpdateStatusPdv
-from server.VisitView import ClancelVisit, GetVisitsPlan, MakePlanning, ValidatePlanning, VisitPdv
+from server.VisitView import ClancelVisit, GetCancelledVisits, GetOldPlanning, GetVisitsPlan, HandleCancelVisit, MakePlanning, ValidatePlanning, VisitPdv
 from server.WilayaView import GetGeojson, GetWilayas, Wilaya_to_supabase
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -46,6 +46,9 @@ urlpatterns = [
     path('UpdateStatusPdv/', UpdateStatusPdv.as_view(), name='UpdateStatusPdv'),
     path('VisitPdv/', VisitPdv.as_view(), name='VisitPdv'),
     path('MakePlanning/', MakePlanning.as_view(), name='MakePlanning'),
+    path('GetOldPlanning/', GetOldPlanning.as_view(), name='GetOldPlanning'),
+    path('GetCancelledVisits/', GetCancelledVisits.as_view(), name='GetCancelledVisits'),
+    path('HandleCancelVisit/', HandleCancelVisit.as_view(), name='HandleCancelVisit'),
     path('ValidatePlanning/', ValidatePlanning.as_view(), name='ValidatePlanning'),
     path('GetVisitsPlan/', GetVisitsPlan.as_view(), name='GetVisitsPlan'),
     path('ClancelVisit/', ClancelVisit.as_view(), name='ClancelVisit'),
