@@ -287,18 +287,54 @@ class ValidatePlanning(APIView):
             return Response({'error': 'CVI not found'}, status=status.HTTP_404_NOT_FOUND)
         if cvi.manager != user and user.role != 'admin':
             return Response({'error': 'You are not authorized to make planning'}, status=status.HTTP_403_FORBIDDEN)
-        visits=Visit.objects.filter(agent=data.get('cvi'),validated=0)
-        deadline=datetime.now()
-        for visit in visits:
-            if visit.deadline.replace(tzinfo=None) > deadline.replace(tzinfo=None):
-                deadline=visit.deadline
-            visit.validated=1
-            visit.save()
-        cvi.deadline=deadline
-        cvi.save()
-        return Response({'message': 'Visits validated successfully'}, status=status.HTTP_201_CREATED)
-    
-    
+        modification=int(data.get("modified",0))
+        if modification==0:    
+            visits=Visit.objects.filter(agent=data.get('cvi'),validated=0)
+            deadline=datetime.now()
+            for visit in visits:
+                if visit.deadline.replace(tzinfo=None) > deadline.replace(tzinfo=None):
+                    deadline=visit.deadline
+                visit.validated=1
+                visit.save()
+            cvi.deadline=deadline
+            cvi.save()
+            return Response({'message': 'Visits validated successfully'}, status=status.HTTP_201_CREATED)
+        else:
+            visits=Visit.objects.filter(agent=data.get('cvi'),validated=0)
+            for visit in visits:
+                visit.delete()
+            map=data.get("map")
+            if not map:
+                return Response({'error': 'Missing map'}, status=status.HTTP_400_BAD_REQUEST)
+            data_points = list(PointOfSale.objects.filter(manager=cvi).values('id', 'name', 'longitude', 'latitude'))
+            visits=[]
+            for deadline in map.keys():
+                order=1
+                try:
+                    deadline=datetime.strptime(deadline,'%Y-%m-%d')
+                except:
+                    return Response({'error': 'Deadline format invalid'}, status=status.HTTP_400_BAD_REQUEST)
+                for pdv in map[deadline]:
+                    pos = next((p for p in data_points if p['name'] == pdv), None)
+                    if pos:
+                        visit = Visit(
+                            id=uuid.uuid4(),
+                            deadline=deadline,
+                            agent=cvi,
+                            pdv_id=pos['id'],
+                            status='scheduled',
+                            order=order,
+                            validated=0
+                        )
+                        visits.append(visit)
+                        order+=1
+            Visit.objects.bulk_create(visits)
+            return Response({'message': 'Visits rescheduled successfully'}, status=status.HTTP_201_CREATED)
+            
+                        
+                
+                
+
 class GetOldPlanning(APIView):
     authentication_classes = [CustomJWTAuthentication]
     permission_classes = [IsAuthenticated]
