@@ -400,6 +400,7 @@ class GetVisitsPlan(APIView):
                 'visit_id': visit.id,
                 'order': visit.order,
                 'visit_time': visit.visit_time,
+                'visit_status': visit.status,
                 'point_of_sale': {
                     'id': visit.pdv.id,
                     'name': visit.pdv.name,
