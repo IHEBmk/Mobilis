@@ -592,3 +592,28 @@ class HandleCancelVisit(APIView):
             print(f"new deadline: {visit.deadline}")
             visit.save()
             return Response({'message': 'Visit rescheduled successfully'}, status=status.HTTP_200_OK)
+
+
+
+class GetTodayRatio(APIView):
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user=request.user
+        if user.role !='manager':
+            return Response({'error': 'you can\'t retrieve visits'}, status=status.HTTP_401_UNAUTHORIZED)
+        today=datetime.now().date()
+        start_of_day = make_aware(datetime.combine(today, datetime.min.time()))
+        end_of_day = make_aware(datetime.combine(today, datetime.max.time()))
+        total_today_visits = Visit.objects.filter(
+            agent=user,
+            validated=1,            
+            deadline=(start_of_day, end_of_day)
+        )
+        today_made_visits = total_today_visits.filter(status='visited')
+        return Response({
+            'total_today_visits': total_today_visits.count(),
+            'today_made_visits': today_made_visits.count(),
+            'today_ratio': today_made_visits.count() / total_today_visits.count() if total_today_visits.count() > 0 else 0
+        }, status=status.HTTP_200_OK)
