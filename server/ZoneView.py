@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import random
 import uuid
 from rest_framework.views import APIView
@@ -70,6 +70,8 @@ class GenerateZones(APIView):
             
             # Create a lookup dictionary for communes by name - normalize names for case-insensitive comparison
             commune_lookup = {commune['name'].lower().strip(): commune['id'] for commune in communes}
+            # Also create reverse lookup for ID to name
+            commune_id_to_name = {commune['id']: commune['name'] for commune in communes}
             print(f"Available communes in wilaya {wilaya.name}: {list(commune_lookup.keys())}")
         except Wilaya.DoesNotExist:
             return Response({'error': 'Wilaya not found'}, status=status.HTTP_400_BAD_REQUEST)
@@ -106,13 +108,54 @@ class GenerateZones(APIView):
         errors = []
         created_points = 0
         
-        # Get all existing points coordinates in a single query to avoid repeated lookups
-        existing_points = set(PointOfSale.objects.filter(
+        # Get all existing points with full details for renaming
+        existing_points_data = list(PointOfSale.objects.filter(
             commune__in=commune_ids
-        ).values_list('latitude', 'longitude'))
-        print(f"Found {len(existing_points)} existing points of sale in this wilaya")
+        ).values('id', 'latitude', 'longitude', 'commune_id'))
         
-        manager = user if user.role == 'manager' else None
+        existing_points_coords = set((float(p['latitude']), float(p['longitude'])) for p in existing_points_data)
+        print(f"Found {len(existing_points_data)} existing points of sale in this wilaya")
+        
+        # Rename all existing PDVs to follow the sequential naming convention
+        existing_pdvs_to_rename = []
+        commune_counters = {}  # Track current counter for each commune
+        
+        # Group existing PDVs by commune for sequential renaming
+        existing_pdvs_by_commune = {}
+        for pdv in existing_points_data:
+            commune_id = pdv['commune_id']
+            if commune_id:
+                commune_name = commune_id_to_name.get(commune_id, f'commune_{commune_id}')
+                if commune_name not in existing_pdvs_by_commune:
+                    existing_pdvs_by_commune[commune_name] = []
+                existing_pdvs_by_commune[commune_name].append(pdv)
+        
+        # Rename existing PDVs with sequential numbers
+        for commune_name, pdvs in existing_pdvs_by_commune.items():
+            commune_counters[commune_name] = 0
+            for pdv in pdvs:
+                commune_counters[commune_name] += 1
+                new_name = f"{commune_name}__{commune_counters[commune_name]}"
+                existing_pdvs_to_rename.append({
+                    'id': pdv['id'],
+                    'new_name': new_name
+                })
+        
+        # Bulk update existing PDV names
+        if existing_pdvs_to_rename:
+            pdvs_to_update_names = {pdv.id: pdv for pdv in PointOfSale.objects.filter(
+                id__in=[p['id'] for p in existing_pdvs_to_rename]
+            )}
+            
+            for rename_data in existing_pdvs_to_rename:
+                pdv_id = rename_data['id']
+                if pdv_id in pdvs_to_update_names:
+                    pdvs_to_update_names[pdv_id].name = rename_data['new_name']
+            
+            PointOfSale.objects.bulk_update(pdvs_to_update_names.values(), ['name'])
+            print(f"Renamed {len(existing_pdvs_to_rename)} existing PDVs with sequential naming")
+        
+        print(f"Current PDV counts per commune after renaming: {commune_counters}")
         
         # Map commune names to IDs, handling potential case/spacing differences
         def get_commune_id(commune_name):
@@ -135,9 +178,8 @@ class GenerateZones(APIView):
         for _, row in df.iterrows():
             try:
                 lat, lon = float(row[lat_col]), float(row[lon_col])
-                
                 # Check if point already exists using our in-memory set
-                if (lat, lon) not in existing_points:
+                if (lat, lon) not in existing_points_coords:
                     # Find the commune for this point
                     commune_name = row.get('Commune')
                     commune_id = get_commune_id(commune_name)
@@ -151,17 +193,26 @@ class GenerateZones(APIView):
                             'longitude': lon,
                             'error': f"Commune '{commune_name}' not found in wilaya {wilaya.name}"
                         })
+                        # Use a default name for unmapped communes
+                        pdv_name = f"Unknown_Commune__{lat}_{lon}"
+                    else:
+                        # Generate sequential name for the commune (continuing from existing counter)
+                        if commune_name not in commune_counters:
+                            commune_counters[commune_name] = 0
+                        commune_counters[commune_name] += 1
+                        pdv_name = f"{commune_name}__{commune_counters[commune_name]}"
                     
                     # Prepare point of sale object for bulk creation
+                    # NOTE: manager will be set later after zone assignment
                     points_to_create.append(
                         PointOfSale(
                             id=uuid.uuid4(),
                             latitude=lat,
-                            manager=manager if manager else None,
+                            manager=None,  # Will be set to zone manager later
                             longitude=lon,
                             zone=None,  # Will be set during zoning
                             commune_id=commune_id,  # Use the ID directly to avoid extra query
-                            name=f"PDV_{lat}_{lon}",  # Generate a default name
+                            name=pdv_name,  # Use sequential naming format
                             created_at=datetime.now(timezone.utc),  # Use timezone-aware datetime
                             status=1,  # Default status (active)
                         )
@@ -180,6 +231,9 @@ class GenerateZones(APIView):
             print(f"Creating {created_points} new points of sale")
             PointOfSale.objects.bulk_create(points_to_create)
             print(f"Successfully created {created_points} points of sale")
+            
+            # Log the final counts per commune
+            print(f"Final PDV counts per commune: {commune_counters}")
         else:
             print("No new points to create")
         
@@ -213,7 +267,7 @@ class GenerateZones(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Create a lookup for PDVs by coordinates for faster access later
-        pdv_lookup = {(pdv['latitude'], pdv['longitude']): pdv['id'] for pdv in pdvs_to_zone if pdv['latitude'] and pdv['longitude']}
+        pdv_lookup = {(float(pdv['latitude']), float(pdv['longitude'])): pdv['id'] for pdv in pdvs_to_zone if pdv['latitude'] and pdv['longitude']}
         
         # Set balance coefficients based on balance_type
         if balance_type == "points":
@@ -234,7 +288,6 @@ class GenerateZones(APIView):
         
         if 'Commune' in df.columns:
             # Try to map commune IDs back to names for zoning
-            commune_id_to_name = {commune['id']: commune['name'] for commune in communes}
             commune_names = []
             for pdv in pdvs_to_zone:
                 commune_id = pdv.get('commune_id')
@@ -270,6 +323,7 @@ class GenerateZones(APIView):
         created_zones = {}
         zones_to_create = []
         pdv_zone_updates = []
+        pdv_manager_updates = []  # NEW: Track manager updates for PDVs
         
         # Prepare zone creation data
         for zone_id, zone_df in zones.items():
@@ -295,15 +349,18 @@ class GenerateZones(APIView):
                 
                 zones_to_create.append(new_zone)
                 created_zones[zone_id] = new_zone
+                
                 # Collect PDV updates for this zone
                 for _, row in zone_df.iterrows():
-                    lat, lon = row[lat_col], row[lon_col]
+                    lat, lon = float(row[lat_col]), float(row[lon_col])
                     # Look up using the tuple key properly
                     pdv_id = pdv_lookup.get((lat, lon))
-                    
                     if pdv_id:
                         # Add to our list of updates
                         pdv_zone_updates.append((pdv_id, zone_uuid))
+                        # NEW: Also track manager assignment
+                        if manager:
+                            pdv_manager_updates.append((pdv_id, manager.id))
                     else:
                         errors.append({
                             'type': 'pdv_update_error',
@@ -324,20 +381,26 @@ class GenerateZones(APIView):
         Zone.objects.bulk_create(zones_to_create)
         print(f"Created {len(zones_to_create)} zones in database")
         
-        # Update PDVs with zones using Django's bulk_update
+        # Update PDVs with zones and managers using Django's bulk_update
         if pdv_zone_updates:
             # Get all the PDVs that need updating in a single query
             pdv_ids = [pdv_id for pdv_id, _ in pdv_zone_updates]
             pdvs_to_update = {pdv.id: pdv for pdv in PointOfSale.objects.filter(id__in=pdv_ids)}
             
-            # Set the zone for each PDV
+            # Create lookup for manager assignments
+            pdv_manager_lookup = dict(pdv_manager_updates)
+            
+            # Set the zone and manager for each PDV
             for pdv_id, zone_id in pdv_zone_updates:
                 if pdv_id in pdvs_to_update:
                     pdvs_to_update[pdv_id].zone_id = zone_id
+                    # NEW: Also set the manager to match the zone
+                    if pdv_id in pdv_manager_lookup:
+                        pdvs_to_update[pdv_id].manager_id = pdv_manager_lookup[pdv_id]
             
-            # Perform bulk update
-            PointOfSale.objects.bulk_update(pdvs_to_update.values(), ['zone_id'])
-            print(f"Updated {len(pdvs_to_update)} points of sale with zone assignments")
+            # Perform bulk update - NOW INCLUDING MANAGER
+            PointOfSale.objects.bulk_update(pdvs_to_update.values(), ['zone', 'manager'])
+            print(f"Updated {len(pdvs_to_update)} points of sale with zone and manager assignments")
         
         # Export zones to GeoJSON and update wilaya
         try:
@@ -373,7 +436,6 @@ class GenerateZones(APIView):
         }
         
         return Response(response_data, status=status.HTTP_200_OK)
-        
                 
         
         
@@ -399,31 +461,6 @@ class GetGeojsonWilaya(APIView):
         return Response({'message': 'Geojson generated successfully',
                          'geojson': geosjon}, status=status.HTTP_200_OK)
 
-
-class GetZones(APIView):
-    authentication_classes = [CustomJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    def get(self, request):
-        user = request.user
-        if not user:
-            return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
-        if user.role == 'admin':
-            zones = Zone.objects.all()
-        elif user.role == 'manager':
-            supervised_agents = User.objects.filter(manager=user.id).values()
-            zones = list(Zone.objects.filter(manager__in=supervised_agents).values())
-        else:
-            return Response({'error': 'you can\'t retrieve zones'}, status=status.HTTP_401_UNAUTHORIZED)
-        for zone in zones:
-            zone['manager']=zone['manager'].first_name
-            zone['wilaya']=zone['commune'].wilaya.name
-            pdvs=PointOfSale.objects.filter(zone=zone['id'])
-            zone['pdvs']=len(pdvs)
-            visists=Visit.objects.filter(pdv__in=pdvs)
-            sheduled_visits=len(visists.filter(status='scheduled'))
-            total_visits=len(pdvs)
-            zone['couverture']=round(sheduled_visits/total_visits*100,2)
-        return Response({'zones': zones}, status=status.HTTP_200_OK)
 class GetZones(APIView):
     authentication_classes = [CustomJWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -456,7 +493,5 @@ class GetZones(APIView):
             zone['couverture']=round(sheduled_visits/total_visits*100,2)
         return Response({'zones': zones}, status=status.HTTP_200_OK)
         
-
-
 
 
