@@ -23,7 +23,7 @@ from server.PerformanceView import getGlobalPerformancePDV, getVisitPerformance
 from server.UserViews import AssignZoneView, GenerateAgents, GenerateManager, GenerateWilayaManagers, GenerateWilayasManagers, GetUsers, LoginView, SignupView
 from server.CommuneView import Commune_to_supabase, GetCommunes
 from server.PdvViews import DeletePdv,GetOnePdv, GetPdv, Pdv_To_supabase, UpdateStatusPdv
-from server.VisitView import ClancelVisit, GetCancelledVisits, GetOldPlanning, GetVisitsPlan, HandleCancelVisit, MakePlanning, ValidatePlanning, VisitPdv
+from server.VisitView import ClancelVisit, GetCancelledVisits, GetOldPlanning, GetTodayRatio, GetVisitsPlan, HandleCancelVisit, MakePlanning, ValidatePlanning, VisitPdv
 from server.WilayaView import GetGeojson, GetWilayas, Wilaya_to_supabase
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -77,4 +77,5 @@ urlpatterns = [
     path('AddAgence/', AddAgence.as_view(), name='AddAgence'),
     path('GenerateZones/', GenerateZones.as_view(), name='GenerateZones'),
     path('GetZones/', GetZones.as_view(), name='GetZones'),
+    path('GetTodayRatio/', GetTodayRatio.as_view(), name='GetTodayRatio'),
 ]
